@@ -1,7 +1,7 @@
 /* MTG Tracker service worker.
  * Network first for the app's own files (so updates on GitHub show up right away),
  * falling back to the last cached copy when offline. Google requests are never cached. */
-const CACHE = 'mtg-tracker-v2';
+const CACHE = 'mtg-tracker-v3';
 const CORE = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
@@ -16,7 +16,8 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(
-    fetch(req)
+    // no-cache: always ask GitHub whether a file changed instead of using the browser's 10-minute copy
+    fetch(req.mode === 'navigate' ? req.url : req, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
         return res;

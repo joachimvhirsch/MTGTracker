@@ -479,7 +479,9 @@ function segmented(path, value, options, cls = '') {
 
 /* ------------------------------------------------------------------ views: onboarding / errors */
 function viewOnboarding() {
+  const cfgBroken = !window.APP_CONFIG;
   return `<div class="onboard">
+    ${cfgBroken ? '<div class="callout" style="border-color:var(--loss);margin-bottom:18px"><b>config.js couldn’t be read.</b> It probably has a typo from editing (a missing quote or comma). Compare it with the example in the README.</div>' : ''}
     <div class="logo">${COLORS.map((c) => pip(c, 'lg')).join('')}</div>
     <h2>Track your league</h2>
     <p class="lead">Connect the Google Sheet that holds your players, decks and matches.</p>
