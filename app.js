@@ -772,6 +772,7 @@ function openSettings() {
         <div class="segmented big" role="group">${[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button data-theme-set="${v}" class="${theme === v ? 'on' : ''}">${l}</button>`).join('')}</div>
       </div>
       <div class="divider"></div>
+      ${installSection()}
       <div class="field"><span class="label">Write access</span>
         <div class="account"><span class="dot ${scriptUrl() ? 'on' : ''}"></span><div class="grow small">${scriptUrl()
           ? 'Connected — matches and decks are saved to the sheet through its Apps Script.'
@@ -820,7 +821,12 @@ function openSettings() {
     if (t) { store.set('theme', t.dataset.themeSet); applyTheme(); s.refresh(); return; }
     const a = e.target.closest('[data-act]');
     if (!a) return;
-    if (a.dataset.act === 'reset') {
+    if (a.dataset.act === 'install') {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      try { await installPrompt.userChoice; } catch (err) { /* ignore */ }
+      installPrompt = null; s.refresh();
+    } else if (a.dataset.act === 'reset') {
       ['sheetId', 'cache', 'ui', 'scriptUrl'].forEach((k) => store.del(k));
       location.hash = ''; location.reload();
     }
@@ -1094,6 +1100,24 @@ $('#btn-refresh').addEventListener('click', () => load({ toast: true }));
 $('#btn-add').addEventListener('click', openMatchForm);
 $('#btn-back').addEventListener('click', () => { if (history.length > 1) history.back(); else location.hash = '#/decks'; });
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+
+/* ------------------------------------------------------------------ install as app */
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; sheetStack.forEach((s) => s.refresh()); });
+window.addEventListener('appinstalled', () => { installPrompt = null; toast('App installed'); sheetStack.forEach((s) => s.refresh()); });
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function installSection() {
+  let body;
+  if (isStandalone()) body = '<div class="account"><span class="dot on"></span><div class="grow small">Installed — you’re using the app version.</div></div>';
+  else if (installPrompt) body = '<button class="btn primary block" data-act="install">Install app</button><p class="hint" style="margin:8px 0 0">Adds MTG League to your home screen and app drawer, full screen without the browser bar.</p>';
+  else if (isIOS()) body = '<p class="small muted" style="margin:0">In Safari, tap <b>Share</b> (square with arrow) → <b>Add to Home Screen</b>.</p>';
+  else body = '<p class="small muted" style="margin:0">In Chrome, tap the <b>⋮</b> menu → <b>Install app</b> (or <b>Add to Home screen</b>).</p>';
+  return `<div class="field"><span class="label">Install as app</span>${body}</div><div class="divider"></div>`;
+}
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
 
 /* ------------------------------------------------------------------ boot */
 applyTheme();
