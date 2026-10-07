@@ -582,14 +582,13 @@ function viewTable() {
   rows.sort((a, b) => cmp(a, b) * (ui.dir === -1 ? 1 : -1));
   const nFilters = ui.colors.length + ui.tags.length;
   const arrow = (ui.sort === 'player') === (ui.dir === -1) ? '↑' : '↓';
-  const th = (key, label) => `<button data-sort="${key}" class="${ui.sort === key ? 'on' : ''}">${label}${ui.sort === key ? ' ' + arrow : ''}</button>`;
+  const th = (key, label) => `<button data-sort="${key}" class="${ui.sort === key ? 'on' : ''}" aria-label="Sort by ${label}">${label}<span class="sort-ind">${ui.sort === key ? arrow : '↕'}</span></button>`;
 
   return `<div class="filters">
-      <div><div class="filter-label">Sort by</div>${segmented('table.sort', ui.sort, [['wr', 'Win rate'], ['player', 'Player'], ['matches', 'Matches']])}</div>
       <div class="chips">${colorChips('table.colors', ui.colors, true)}</div>
       ${d.allTags.length ? `<div class="chips">${d.allTags.map((t) => `<button class="chip${ui.tags.includes(t) ? ' on' : ''}" data-toggle="table.tags" data-val="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}
     </div>
-    <div class="toolbar"><span class="count">${plural(rows.length, 'active deck')}${nFilters ? ' · <button class="link-btn" data-act="clear-table">Clear filters</button>' : ''}</span><button class="link-btn" data-act="flip-dir">${ui.sort === 'player' ? (ui.dir === -1 ? 'A → Z' : 'Z → A') : (ui.dir === -1 ? 'Highest first' : 'Lowest first')}</button></div>
+    <div class="toolbar"><span class="count">${plural(rows.length, 'active deck')}${nFilters ? ' · <button class="link-btn" data-act="clear-table">Clear filters</button>' : ''}</span><span class="count">Tap a column to sort</span></div>
     ${rows.length ? `<div class="card" style="padding:10px 12px 4px"><table class="league">
       <thead><tr><th>#</th><th>Deck</th><th class="pl">${th('player', 'Player')}</th><th>${th('matches', 'M')}</th><th>${th('wr', 'Win')}</th></tr></thead>
       <tbody>${rows.map((r, i) => `<tr class="tap" data-href="#/deck/${encodeURIComponent(r.deck.id)}">
