@@ -1,0 +1,1072 @@
+/* MTG League — mobile tracker backed by a Google Sheet.
+ * Plain JS, no build step. Data lives in the sheet (tabs: Players, Decks, Matches).
+ */
+'use strict';
+
+const CFG = window.APP_CONFIG || {};
+const TABS = { players: 'Players', decks: 'Decks', matches: 'Matches', config: 'Config' };
+const COLORS = ['W', 'U', 'B', 'R', 'G'];
+const COLOR_NAMES = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless' };
+
+/* ------------------------------------------------------------------ utils */
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const norm = (s) => String(s ?? '').trim().toLowerCase();
+const pct = (x) => (x == null || isNaN(x) ? '–' : Math.round(x * 100) + '%');
+const plural = (n, w) => `${n} ${n === 1 ? w : /(ch|sh|s|x)$/.test(w) ? w + 'es' : w + 's'}`;
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('mtg.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('mtg.' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } },
+  del(k) { try { localStorage.removeItem('mtg.' + k); } catch (e) { /* ignore */ } },
+};
+
+function parseSheetId(input) {
+  const s = String(input || '').trim();
+  const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (m) return m[1];
+  if (/^[a-zA-Z0-9-_]{20,}$/.test(s)) return s;
+  return '';
+}
+
+function parseCSV(text) {
+  const rows = []; let row = []; let cur = ''; let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+    else if (c !== '\r') cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+
+function parseDate(s) {
+  if (!s) return null;
+  s = String(s).trim();
+  let m;
+  if ((m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/))) return new Date(+(m[3].length === 2 ? '20' + m[3] : m[3]), +m[2] - 1, +m[1]);
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return new Date(+m[1], +m[2] - 1, +m[3]);
+  if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/))) return new Date(+m[3], +m[1] - 1, +m[2]);
+  const t = Date.parse(s);
+  return isNaN(t) ? null : new Date(t);
+}
+const pad = (n) => String(n).padStart(2, '0');
+const isoDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const fmtDate = (d, opts) => (d ? d.toLocaleDateString(undefined, opts || { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
+
+function truthy(v) {
+  const s = norm(v);
+  return s === 'true' || s === 'yes' || s === 'y' || s === '1' || s === 'x' || s === 'ja' || s === 'wahr' || s === '✓';
+}
+function splitList(v) { return String(v ?? '').split(/[,;|]/).map((x) => x.trim()).filter(Boolean); }
+function normColors(v) {
+  const up = String(v ?? '').toUpperCase();
+  return COLORS.filter((c) => up.includes(c));
+}
+function colLetter(n) { let s = ''; n++; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
+const qTab = (t) => `'${t.replace(/'/g, "''")}'`;
+
+/* ------------------------------------------------------------------ toast */
+let toastTimer;
+function toast(msg, isError) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, isError ? 4500 : 2400);
+}
+
+/* ------------------------------------------------------------------ sheet access */
+class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
+
+/** Write bridge: the Apps Script web app attached to the sheet (see Code.gs). */
+function scriptUrl() {
+  return store.get('scriptUrl', '') || (state.config && state.config.scripturl) || '';
+}
+async function callScript(action, payload = {}, url = scriptUrl()) {
+  if (!url) throw new Error('Saving isn’t set up yet. Open Settings → Write access and connect the Apps Script.');
+  let res;
+  try {
+    // text/plain keeps this a "simple" request, so the browser sends no CORS preflight.
+    res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, ...payload }) });
+  } catch (e) {
+    throw new Error('Couldn’t reach the Apps Script. Check the URL and that it is deployed with access “Anyone”.');
+  }
+  let out;
+  try { out = await res.json(); } catch (e) { throw new Error('The Apps Script didn’t answer as expected. Check that the URL ends in /exec and access is “Anyone”.'); }
+  if (!out.ok) throw new Error(out.error || 'The Apps Script reported an error.');
+  return out;
+}
+
+/** Read-only access without sign-in, works when the sheet is shared "Anyone with the link". */
+async function fetchViaPublic(id) {
+  const get = async (tab, mustHave) => {
+    const url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&headers=1&sheet=${encodeURIComponent(tab)}&_=${Date.now()}`;
+    let res;
+    try { res = await fetch(url); } catch (e) { throw new HttpError(403, 'private'); }
+    const text = await res.text();
+    if (!res.ok || /^\s*</.test(text)) throw new HttpError(403, 'private');
+    const rows = parseCSV(text);
+    const head = (rows[0] || []).map(norm);
+    if (!mustHave.every((h) => head.includes(h))) throw new Error(`Tab "${tab}" not found or missing columns (${mustHave.join(', ')}).`);
+    return rows;
+  };
+  const [players, decks, matches, config] = await Promise.all([
+    get(TABS.players, ['id', 'name']),
+    get(TABS.decks, ['id', 'name', 'colors']),
+    get(TABS.matches, ['playera', 'playerb', 'gamesa', 'gamesb']),
+    get(TABS.config, ['key', 'value']).catch(() => [['key', 'value']]), // optional tab
+  ]);
+  return { players, decks, matches, config, title: '' };
+}
+
+/* ------------------------------------------------------------------ model */
+function table(rows) {
+  const header = (rows[0] || []).map((h) => String(h).trim());
+  const keys = header.map(norm);
+  const items = [];
+  rows.slice(1).forEach((r, i) => {
+    if (!r || r.every((c) => String(c ?? '').trim() === '')) return;
+    const o = { _row: i + 2 };
+    keys.forEach((k, j) => { if (k) o[k] = String(r[j] ?? '').trim(); });
+    items.push(o);
+  });
+  return { header, keys, items };
+}
+
+function buildModel(raw) {
+  const P = table(raw.players), D = table(raw.decks), M = table(raw.matches);
+
+  const players = P.items.filter((p) => p.id || p.name).map((p) => ({ id: p.id || p.name, name: p.name || p.id, _row: p._row }));
+  const playerByRef = new Map();
+  players.forEach((p) => { playerByRef.set(norm(p.id), p); playerByRef.set(norm(p.name), p); });
+  const resolvePlayer = (ref) => {
+    if (!ref) return null;
+    const p = playerByRef.get(norm(ref));
+    if (p) return p;
+    const ghost = { id: ref, name: ref, ghost: true };
+    players.push(ghost); playerByRef.set(norm(ref), ghost);
+    return ghost;
+  };
+
+  const playerCol = ['playerid', 'playerids', 'players', 'player'].find((k) => D.keys.includes(k)) || 'playerid';
+  const decks = D.items.filter((d) => d.id || d.name).map((d) => ({
+    id: d.id || d.name,
+    name: d.name || d.id,
+    colors: normColors(d.colors),
+    tags: splitList(d.tags),
+    active: d.active === undefined || d.active === '' ? true : truthy(d.active),
+    playerIds: splitList(d[playerCol]).map((r) => (playerByRef.get(norm(r)) || resolvePlayer(r)).id),
+    _row: d._row,
+  }));
+  const deckById = new Map(decks.map((d) => [d.id, d]));
+  const deckByName = new Map();
+  decks.forEach((d) => { const k = norm(d.name); if (!deckByName.has(k)) deckByName.set(k, []); deckByName.get(k).push(d); });
+  const resolveDeck = (ref, player) => {
+    if (!ref) return { id: '?', name: '(no deck)', colors: [], tags: [], active: false, playerIds: [], ghost: true };
+    if (deckById.has(ref)) return deckById.get(ref);
+    const list = deckByName.get(norm(ref));
+    if (list) return (player && list.find((d) => d.playerIds.includes(player.id))) || list[0];
+    const ghost = { id: '?' + ref, name: ref, colors: [], tags: [], active: false, playerIds: player ? [player.id] : [], ghost: true };
+    deckByName.set(norm(ref), [ghost]); deckById.set(ghost.id, ghost);
+    return ghost;
+  };
+
+  let dateStyle = 'dmy';
+  const matches = M.items.filter((m) => m.playera || m.playerb).map((m) => {
+    const pa = resolvePlayer(m.playera), pb = resolvePlayer(m.playerb);
+    if (/^\d{4}-/.test(m.date)) dateStyle = 'iso'; else if (/\//.test(m.date)) dateStyle = 'mdy';
+    const ga = parseInt(m.gamesa, 10) || 0, gb = parseInt(m.gamesb, 10) || 0;
+    return {
+      id: m.id || 'row' + m._row, date: parseDate(m.date), dateRaw: m.date,
+      pa, pb, da: resolveDeck(m.decka, pa), db: resolveDeck(m.deckb, pb),
+      ga, gb, onPlay: m.onplay || '', notes: m.notes || '', _row: m._row,
+    };
+  });
+  matches.sort((a, b) => ((b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0)) || (b._row - a._row));
+
+  const config = {};
+  (raw.config || []).slice(1).forEach((r) => { if (r && r[0]) config[norm(r[0])] = String(r[1] ?? '').trim(); });
+
+  return {
+    title: config.title || '', config,
+    players, decks, matches, deckById, playerByRef, dateStyle,
+    headers: { players: P.header, decks: D.header, matches: M.header },
+    playerCol,
+    allTags: [...new Set(decks.flatMap((d) => d.tags.map((t) => t.toLowerCase())))].sort(),
+  };
+}
+
+/** Both sides of a match from each side's perspective. */
+function sides(m) {
+  const res = (x, y) => (x > y ? 'W' : x < y ? 'L' : 'D');
+  const playA = m.onPlay ? (norm(m.onPlay) === norm(m.pa && m.pa.name) || norm(m.onPlay) === norm(m.pa && m.pa.id) || norm(m.onPlay) === 'a') : null;
+  return [
+    { m, player: m.pa, deck: m.da, opp: m.pb, oppDeck: m.db, gw: m.ga, gl: m.gb, r: res(m.ga, m.gb), onPlay: playA },
+    { m, player: m.pb, deck: m.db, opp: m.pa, oppDeck: m.da, gw: m.gb, gl: m.ga, r: res(m.gb, m.ga), onPlay: playA == null ? null : !playA },
+  ];
+}
+
+function emptyRec() { return { m: 0, w: 0, l: 0, d: 0, gw: 0, gl: 0 }; }
+function addRec(rec, s) { rec.m++; rec[s.r === 'W' ? 'w' : s.r === 'L' ? 'l' : 'd']++; rec.gw += s.gw; rec.gl += s.gl; return rec; }
+const wr = (rec) => (rec.m ? rec.w / rec.m : null);
+const gwr = (rec) => (rec.gw + rec.gl ? rec.gw / (rec.gw + rec.gl) : null);
+const recStr = (rec) => `${rec.w}–${rec.l}${rec.d ? '–' + rec.d : ''}`;
+
+function deckRecords(matches) {
+  const map = new Map();
+  for (const m of matches) for (const s of sides(m)) {
+    if (!map.has(s.deck.id)) map.set(s.deck.id, emptyRec());
+    addRec(map.get(s.deck.id), s);
+  }
+  return map;
+}
+
+/* ------------------------------------------------------------------ state */
+const UI_DEFAULTS = {
+  home: { period: 'all', activeOnly: false, colorMetric: 'played', tagMetric: 'played' },
+  table: { sort: 'wr', dir: -1, player: '', colors: [], tags: [] },
+  matches: { deck: '', player: '' },
+  decks: { q: '', status: 'all', player: '', colors: [] },
+};
+const savedUi = store.get('ui', {});
+const state = {
+  sheetId: store.get('sheetId', '') || parseSheetId(CFG.defaultSheet),
+  data: null, config: null, loading: false, error: null, notPublic: false, loadedAt: 0,
+  ui: Object.fromEntries(Object.entries(UI_DEFAULTS).map(([k, v]) => [k, { ...v, ...(savedUi[k] || {}) }])),
+};
+state.ui.decks.q = '';
+
+function getPath(path) { return path.split('.').reduce((o, k) => o[k], state.ui); }
+function setPath(path, val) {
+  const ks = path.split('.'); const last = ks.pop();
+  ks.reduce((o, k) => o[k], state.ui)[last] = val;
+  store.set('ui', state.ui);
+}
+
+/* ------------------------------------------------------------------ theme */
+function applyTheme() {
+  const t = store.get('theme', 'system');
+  if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  else document.documentElement.removeAttribute('data-theme');
+}
+
+/* ------------------------------------------------------------------ loading */
+async function load(opts = {}) {
+  if (!state.sheetId) { render(); return; }
+  state.loading = true; state.error = null;
+  $('#btn-refresh').classList.add('spinning');
+  if (!state.data) render();
+  try {
+    let raw;
+    try { raw = await fetchViaPublic(state.sheetId); }
+    catch (e) {
+      if (e.status === 403) { state.notPublic = true; throw new Error('The sheet isn’t shared publicly. In Google Sheets choose Share → General access → “Anyone with the link”.'); }
+      throw e;
+    }
+    state.data = buildModel(raw); state.config = state.data.config; state.notPublic = false; state.loadedAt = Date.now();
+    store.set('cache', { id: state.sheetId, raw, at: state.loadedAt });
+    if (opts.toast) toast('Data updated');
+  } catch (e) {
+    state.error = e;
+    if (state.data) toast(e.message, true);
+  } finally {
+    state.loading = false;
+    $('#btn-refresh').classList.remove('spinning');
+    render();
+  }
+}
+
+function setSheet(input) {
+  const id = parseSheetId(input);
+  if (!id) return false;
+  if (id !== state.sheetId) { state.data = null; state.config = null; store.del('cache'); store.del('scriptUrl'); }
+  state.sheetId = id; store.set('sheetId', id);
+  return true;
+}
+
+/* ------------------------------------------------------------------ routing & render */
+function route() {
+  const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
+  return { name: name || 'home', arg: arg ? decodeURIComponent(arg) : '' };
+}
+
+const VIEWS = { home: viewHome, table: viewTable, matches: viewMatches, decks: viewDecks, deck: viewDeck };
+const TAB_TITLES = { home: 'Overview', table: 'League table', matches: 'Matches', decks: 'Decks', deck: 'Deck' };
+
+function render() {
+  const r = route();
+  const view = $('#view');
+  // keep focus on text inputs across re-renders
+  const ae = document.activeElement;
+  const focusModel = ae && ae.dataset && ae.dataset.model && view.contains(ae) ? { m: ae.dataset.model, s: ae.selectionStart } : null;
+
+  const tabName = r.name === 'deck' ? 'decks' : r.name;
+  $$('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tabName));
+  $('#btn-back').hidden = r.name !== 'deck';
+  document.body.classList.toggle('no-chrome', !state.sheetId || (!state.data && !state.loading));
+
+  const d = state.data;
+  $('#title').textContent = state.sheetId && d ? (TAB_TITLES[r.name] || 'MTG League') : 'MTG League';
+  $('#subtitle').textContent = d ? (scriptUrl() ? (d.title || '') : 'View only · set up saving in Settings') : '';
+
+  let html;
+  if (!state.sheetId) html = viewOnboarding();
+  else if (!d && state.loading) html = '<div class="skeleton" style="height:70px"></div><div class="skeleton"></div><div class="skeleton" style="height:180px"></div><div class="skeleton" style="height:140px"></div>';
+  else if (!d) html = viewLoadError();
+  else html = (VIEWS[r.name] || viewHome)(r.arg);
+  view.innerHTML = html;
+
+  if (focusModel) {
+    const el = view.querySelector(`[data-model="${focusModel.m}"]`);
+    if (el) { el.focus(); try { el.setSelectionRange(focusModel.s, focusModel.s); } catch (e) { /* ignore */ } }
+  }
+}
+
+/* ------------------------------------------------------------------ shared bits */
+const ICON = {
+  chev: '<svg class="chev" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>',
+  edit: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  close: '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+};
+
+function pips(colors, big) {
+  const cs = colors && colors.length ? colors : ['C'];
+  return `<span class="pips" title="${cs.map((c) => COLOR_NAMES[c]).join(', ')}">${cs.map((c) => `<span class="pip pip-${c}${big ? ' lg' : ''}">${c}</span>`).join('')}</span>`;
+}
+function playerNames(deck) {
+  const d = state.data;
+  return deck.playerIds.map((id) => { const p = d.playerByRef.get(norm(id)); return p ? p.name : id; }).join(' & ') || '—';
+}
+function realPlayers() { return state.data.players.filter((p) => !p.ghost); }
+function deckLink(deck, cls = '') {
+  if (deck.ghost) return `<span class="${cls}">${esc(deck.name)}</span>`;
+  return `<a class="${cls}" href="#/deck/${encodeURIComponent(deck.id)}">${esc(deck.name)}</a>`;
+}
+
+/** Horizontal bar chart: one series, direct labels on every bar. */
+function hbars(rows, { max, axis, big, empty = 'No data yet' } = {}) {
+  if (!rows.length) return `<p class="muted small">${empty}</p>`;
+  const top = max || Math.max(...rows.map((r) => r.value || 0), 1);
+  return `<div class="hbars">${rows.map((r) => `
+    <div class="hbar${big ? ' big' : ''}${r.href ? ' tap' : ''}" ${r.href ? `data-href="${r.href}"` : ''} title="${esc(r.title || '')}">
+      <div class="hb-label">${r.icon || ''}<span>${esc(r.label)}</span></div>
+      <div class="hb-track">
+        <div class="hb-fill${r.ringed ? ' ringed' : ''}" style="width:${Math.max(0, Math.min(1, (r.value || 0) / top)) * 100}%;${r.color ? `background:${r.color}` : ''}"></div>
+        ${axis != null ? `<div class="hb-axis" style="left:${(axis / top) * 100}%"></div>` : ''}
+      </div>
+      <div class="hb-value num">${r.valueHtml}</div>
+    </div>`).join('')}</div>`;
+}
+
+function matchRow(m, focusDeckId) {
+  const aw = m.ga > m.gb, bw = m.gb > m.ga;
+  const sideHtml = (p, deck, won, lost, cls, onPlay) => `
+    <div class="side ${cls} ${won ? 'won' : lost ? 'lost' : ''}">
+      <div class="player">${esc(p ? p.name : '?')}${onPlay ? ' <span class="faint" title="On the play">▶</span>' : ''}</div>
+      ${deckLink(deck, 'deck')}
+      ${pips(deck.colors)}
+    </div>`;
+  const s = sides(m);
+  return `<div class="match" ${focusDeckId ? '' : ''}>
+    ${sideHtml(m.pa, m.da, aw, bw, 'a', s[0].onPlay === true)}
+    <div class="score"><span class="${aw ? 'w' : bw ? 'l' : ''}">${m.ga}</span><span class="sep">:</span><span class="${bw ? 'w' : aw ? 'l' : ''}">${m.gb}</span></div>
+    ${sideHtml(m.pb, m.db, bw, aw, 'b', s[1].onPlay === true)}
+    ${m.notes ? `<div class="note">${esc(m.notes)}</div>` : ''}
+  </div>`;
+}
+
+function matchList(matches, opts = {}) {
+  if (!matches.length) return `<div class="empty"><h2>No matches</h2><p>${opts.emptyText || 'Nothing matches these filters.'}</p></div>`;
+  let html = ''; let lastKey = null; let open = false;
+  for (const m of matches) {
+    const key = m.date ? isoDate(m.date) : m.dateRaw || '—';
+    if (key !== lastKey) {
+      if (open) html += '</div>';
+      html += `<div class="date-head">${m.date ? fmtDate(m.date, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : esc(m.dateRaw || 'No date')}</div><div class="list">`;
+      open = true; lastKey = key;
+    }
+    html += matchRow(m, opts.focusDeckId);
+  }
+  return html + (open ? '</div>' : '');
+}
+
+function filterPeriod(matches, period) {
+  if (period === 'all') return matches;
+  const now = new Date();
+  let from;
+  if (period === '30') from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
+  else if (period === '90') from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90);
+  else if (period === 'year') from = new Date(now.getFullYear(), 0, 1);
+  return matches.filter((m) => m.date && m.date >= from);
+}
+
+function colorChips(path, selected, withColorless) {
+  const list = withColorless ? [...COLORS, 'C'] : COLORS;
+  return list.map((c) => `<button class="chip mana${selected.includes(c) ? ' on' : ''}" data-toggle="${path}" data-val="${c}" aria-pressed="${selected.includes(c)}" aria-label="${COLOR_NAMES[c]}"><span class="pip pip-${c}">${c}</span></button>`).join('');
+}
+function playerSelect(path, value, allLabel = 'All players') {
+  return `<select class="select sm" data-model="${path}"><option value="">${allLabel}</option>${realPlayers().map((p) => `<option value="${esc(p.id)}"${p.id === value ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`;
+}
+function segmented(path, value, options, cls = '') {
+  return `<div class="segmented ${cls}" role="group">${options.map(([v, l]) => `<button data-set="${path}" data-val="${v}" class="${String(value) === String(v) ? 'on' : ''}" aria-pressed="${String(value) === String(v)}">${l}</button>`).join('')}</div>`;
+}
+
+/* ------------------------------------------------------------------ views: onboarding / errors */
+function viewOnboarding() {
+  return `<div class="onboard">
+    <div class="logo">${COLORS.map((c) => `<span class="pip lg pip-${c}">${c}</span>`).join('')}</div>
+    <h2>Track your league</h2>
+    <p class="lead">Connect the Google Sheet that holds your players, decks and matches.</p>
+    <form data-form="onboard">
+      <label class="field"><span class="label">Google Sheet URL or ID</span>
+        <input class="input" name="sheet" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://docs.google.com/spreadsheets/d/…" value="${esc(CFG.defaultSheet || '')}" required>
+      </label>
+      <p class="err-text hidden" id="onboard-err">That doesn’t look like a Google Sheets link or ID.</p>
+      <button class="btn primary block" type="submit">Continue</button>
+    </form>
+    <div class="divider"></div>
+    <div class="callout">The sheet needs the tabs <b>Players</b>, <b>Decks</b> and <b>Matches</b> and must be shared as <b>“Anyone with the link”</b>. To add matches, the sheet owner connects the small Apps Script once (Settings → Write access).</div>
+  </div>`;
+}
+
+function viewLoadError() {
+  const e = state.error;
+  return `<div class="onboard">
+    <h2>${state.notPublic ? 'Sheet isn’t public' : 'Couldn’t load the sheet'}</h2>
+    <p class="lead">${esc(e ? e.message : 'Unknown error')}</p>
+    <button class="btn primary block" data-act="refresh">Try again</button>
+    <div style="height:10px"></div>
+    <button class="btn block" data-act="settings">Settings</button>
+  </div>`;
+}
+
+/* ------------------------------------------------------------------ view: home */
+function viewHome() {
+  const d = state.data, ui = state.ui.home;
+  let ms = filterPeriod(d.matches, ui.period);
+  if (ui.activeOnly) ms = ms.filter((m) => m.da.active && m.db.active);
+  const allSides = ms.flatMap(sides);
+
+  // KPIs
+  const games = ms.reduce((a, m) => a + m.ga + m.gb, 0);
+  const decksPlayed = new Set(allSides.map((s) => s.deck.id)).size;
+  const last = d.matches[0];
+  const kpis = `<div class="kpis">
+    <div class="kpi"><div class="k-label">Matches</div><div class="k-value num">${ms.length}</div><div class="k-sub">${plural(games, 'game')}</div></div>
+    <div class="kpi"><div class="k-label">Decks played</div><div class="k-value num">${decksPlayed}</div><div class="k-sub">${d.decks.filter((x) => x.active).length} active of ${d.decks.length}</div></div>
+    <div class="kpi"><div class="k-label">Players</div><div class="k-value num">${realPlayers().length}</div><div class="k-sub">&nbsp;</div></div>
+    <div class="kpi"><div class="k-label">Last match</div><div class="k-value" style="font-size:18px;padding-top:5px">${last ? fmtDate(last.date, { day: 'numeric', month: 'short' }) : '—'}</div><div class="k-sub">${last && last.date ? last.date.getFullYear() : ''}</div></div>
+  </div>`;
+
+  // Players
+  const pRec = new Map();
+  for (const s of allSides) { if (!s.player) continue; if (!pRec.has(s.player.id)) pRec.set(s.player.id, { p: s.player, rec: emptyRec() }); addRec(pRec.get(s.player.id).rec, s); }
+  const pRows = [...pRec.values()].sort((a, b) => (wr(b.rec) - wr(a.rec)) || (b.rec.m - a.rec.m)).map(({ p, rec }) => ({
+    label: p.name, value: wr(rec),
+    valueHtml: `${pct(wr(rec))}<small>${recStr(rec)}</small>`,
+    title: `${p.name}: ${rec.w} wins, ${rec.l} losses${rec.d ? `, ${rec.d} draws` : ''} · games ${rec.gw}–${rec.gl} (${pct(gwr(rec))})`,
+  }));
+  const playersCard = `<section class="card">
+    <h2>Player win rate</h2><p class="card-sub">Matches won · dashed line = 50%</p>
+    ${hbars(pRows, { max: 1, axis: 0.5, big: true })}
+    ${pRows.length ? `<div class="legend-note">${[...pRec.values()].map(({ p, rec }) => `${esc(p.name)}: games ${rec.gw}–${rec.gl} (${pct(gwr(rec))})`).join(' · ')}</div>` : ''}
+  </section>`;
+
+  // Colors
+  const cStat = {}; [...COLORS, 'C'].forEach((c) => { cStat[c] = { n: 0, rec: emptyRec() }; });
+  for (const s of allSides) {
+    if (s.deck.ghost) continue;
+    const cs = s.deck.colors.length ? s.deck.colors : ['C'];
+    cs.forEach((c) => { cStat[c].n++; addRec(cStat[c].rec, s); });
+  }
+  const totalSides = allSides.filter((s) => !s.deck.ghost).length || 1;
+  const cRows = [...COLORS, 'C'].filter((c) => c !== 'C' || cStat.C.n).map((c) => {
+    const st = cStat[c];
+    const played = ui.colorMetric === 'played';
+    return {
+      label: COLOR_NAMES[c], icon: `<span class="pip pip-${c}">${c}</span>`,
+      value: played ? st.n : wr(st.rec), color: `var(--mana-${c})`, ringed: true,
+      valueHtml: played ? `${st.n}<small>${pct(st.n / totalSides)}</small>` : `${pct(wr(st.rec))}<small>${recStr(st.rec)}</small>`,
+      title: `${COLOR_NAMES[c]}: in ${st.n} of ${totalSides} decks played · ${recStr(st.rec)}`,
+    };
+  });
+  const colorsCard = `<section class="card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><h2>Colors</h2><p class="card-sub">${ui.colorMetric === 'played' ? 'Deck appearances containing each color' : 'Match win rate of decks with each color'}</p></div>
+      ${segmented('home.colorMetric', ui.colorMetric, [['played', 'Played'], ['wr', 'Win %']])}
+    </div>
+    ${hbars(cRows, ui.colorMetric === 'wr' ? { max: 1, axis: 0.5 } : {})}
+    <div class="legend-note">Multicolor decks count toward each of their colors.</div>
+  </section>`;
+
+  // Tags
+  const tStat = new Map();
+  for (const s of allSides) {
+    if (s.deck.ghost) continue;
+    const ts = s.deck.tags.length ? s.deck.tags.map((t) => t.toLowerCase()) : ['untagged'];
+    ts.forEach((t) => { if (!tStat.has(t)) tStat.set(t, { n: 0, rec: emptyRec() }); const st = tStat.get(t); st.n++; addRec(st.rec, s); });
+  }
+  const tagPlayed = ui.tagMetric === 'played';
+  const tRows = [...tStat.entries()]
+    .sort((a, b) => (tagPlayed ? b[1].n - a[1].n : (wr(b[1].rec) - wr(a[1].rec)) || b[1].n - a[1].n))
+    .map(([t, st]) => ({
+      label: t, value: tagPlayed ? st.n : wr(st.rec),
+      valueHtml: tagPlayed ? `${st.n}<small>${pct(st.n / totalSides)}</small>` : `${pct(wr(st.rec))}<small>${recStr(st.rec)}</small>`,
+      title: `${t}: ${st.n} appearances · ${recStr(st.rec)}`,
+    }));
+  const tagsCard = `<section class="card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><h2>Deck types</h2><p class="card-sub">${tagPlayed ? 'Deck appearances per tag' : 'Match win rate per tag'}</p></div>
+      ${segmented('home.tagMetric', ui.tagMetric, [['played', 'Played'], ['wr', 'Win %']])}
+    </div>
+    ${hbars(tRows, tagPlayed ? {} : { max: 1, axis: 0.5 })}
+    <div class="legend-note">Decks with several tags count toward each tag.</div>
+  </section>`;
+
+  const recent = ms.slice(0, 5);
+  const recentCard = `<div class="toolbar" style="margin-top:4px"><div class="section-title" style="margin:0">Recent matches</div><a class="link-btn" href="#/matches">See all</a></div>
+    ${recent.length ? `<div class="list">${recent.map((m) => matchRow(m)).join('')}</div>` : '<p class="muted small">No matches in this period.</p>'}`;
+
+  return `<div class="filters">
+      ${segmented('home.period', ui.period, [['all', 'All time'], ['year', 'This year'], ['90', '90 days'], ['30', '30 days']])}
+      <label class="switch"><span><b>Active decks only</b><br><span class="small faint">Count only matches where both decks are active</span></span><input type="checkbox" data-model="home.activeOnly" ${ui.activeOnly ? 'checked' : ''}></label>
+    </div>
+    ${kpis}${playersCard}${colorsCard}${tagsCard}${recentCard}`;
+}
+
+/* ------------------------------------------------------------------ view: league table */
+function deckMatchesFilters(deck, f) {
+  if (f.player && !deck.playerIds.includes(f.player)) return false;
+  if (f.colors && f.colors.length) {
+    if (f.colors.includes('C') ? deck.colors.length !== 0 : !f.colors.every((c) => deck.colors.includes(c))) return false;
+  }
+  if (f.tags && f.tags.length && !deck.tags.some((t) => f.tags.includes(t.toLowerCase()))) return false;
+  return true;
+}
+
+function viewTable() {
+  const d = state.data, ui = state.ui.table;
+  const recs = deckRecords(d.matches);
+  let rows = d.decks.filter((x) => x.active && deckMatchesFilters(x, ui)).map((deck) => ({ deck, rec: recs.get(deck.id) || emptyRec(), pn: playerNames(deck) }));
+  const byWr = (a, b) => ((wr(b.rec) ?? -1) - (wr(a.rec) ?? -1)) || ((gwr(b.rec) ?? -1) - (gwr(a.rec) ?? -1)) || (b.rec.m - a.rec.m) || a.deck.name.localeCompare(b.deck.name);
+  const cmp = {
+    wr: byWr,
+    matches: (a, b) => (b.rec.m - a.rec.m) || byWr(a, b),
+    player: (a, b) => a.pn.localeCompare(b.pn) || byWr(a, b),
+  }[ui.sort] || byWr;
+  rows.sort((a, b) => cmp(a, b) * (ui.dir === -1 ? 1 : -1));
+  const nFilters = (ui.player ? 1 : 0) + ui.colors.length + ui.tags.length;
+  const arrow = (ui.sort === 'player') === (ui.dir === -1) ? '↑' : '↓';
+  const th = (key, label) => `<button data-sort="${key}" class="${ui.sort === key ? 'on' : ''}">${label}${ui.sort === key ? ' ' + arrow : ''}</button>`;
+
+  return `<div class="filters">
+      <div><div class="filter-label">Sort by</div>${segmented('table.sort', ui.sort, [['wr', 'Win rate'], ['player', 'Player'], ['matches', 'Matches']])}</div>
+      <div class="row"><div class="grow">${playerSelect('table.player', ui.player)}</div>${nFilters ? '<button class="link-btn" data-act="clear-table">Clear filters</button>' : ''}</div>
+      <div class="chips">${colorChips('table.colors', ui.colors, true)}</div>
+      ${d.allTags.length ? `<div class="chips">${d.allTags.map((t) => `<button class="chip${ui.tags.includes(t) ? ' on' : ''}" data-toggle="table.tags" data-val="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}
+    </div>
+    <div class="toolbar"><span class="count">${plural(rows.length, 'active deck')}</span><button class="link-btn" data-act="flip-dir">${ui.sort === 'player' ? (ui.dir === -1 ? 'A → Z' : 'Z → A') : (ui.dir === -1 ? 'Highest first' : 'Lowest first')}</button></div>
+    ${rows.length ? `<div class="card" style="padding:10px 12px 4px"><table class="league">
+      <thead><tr><th>#</th><th>${th('player', 'Deck')}</th><th>${th('matches', 'M')}</th><th>W–L</th><th>${th('wr', 'Win')}</th></tr></thead>
+      <tbody>${rows.map((r, i) => `<tr class="tap" data-href="#/deck/${encodeURIComponent(r.deck.id)}">
+        <td class="num">${i + 1}</td>
+        <td class="deck-cell"><span class="name">${esc(r.deck.name)}</span><span class="meta">${pips(r.deck.colors)}<span>${esc(r.pn)}</span></span></td>
+        <td class="num">${r.rec.m}</td>
+        <td class="num muted" style="white-space:nowrap">${recStr(r.rec)}</td>
+        <td class="num"><span class="wr">${pct(wr(r.rec))}</span><span class="wr-bar"><i style="width:${(wr(r.rec) || 0) * 100}%"></i></span></td>
+      </tr>`).join('')}</tbody></table></div>` : '<div class="empty"><h2>No decks</h2><p>No active deck matches these filters.</p></div>'}`;
+}
+
+/* ------------------------------------------------------------------ view: matches */
+function viewMatches() {
+  const d = state.data, ui = state.ui.matches;
+  let ms = d.matches;
+  if (ui.deck) ms = ms.filter((m) => m.da.id === ui.deck || m.db.id === ui.deck);
+  if (ui.player) ms = ms.filter((m) => (m.pa && m.pa.id === ui.player) || (m.pb && m.pb.id === ui.player));
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const act = d.decks.filter((x) => x.active).sort(byName), inact = d.decks.filter((x) => !x.active).sort(byName);
+  const opt = (x) => `<option value="${esc(x.id)}"${x.id === ui.deck ? ' selected' : ''}>${esc(x.name)}</option>`;
+  let summary = '';
+  if (ui.deck) {
+    const rec = emptyRec();
+    ms.flatMap(sides).filter((s) => s.deck.id === ui.deck).forEach((s) => addRec(rec, s));
+    summary = ` · ${recStr(rec)} (${pct(wr(rec))})`;
+  }
+  return `<div class="filters">
+      <select class="select" data-model="matches.deck"><option value="">All decks</option>
+        <optgroup label="Active">${act.map(opt).join('')}</optgroup>
+        ${inact.length ? `<optgroup label="Inactive">${inact.map(opt).join('')}</optgroup>` : ''}
+      </select>
+      <div class="row"><div class="grow">${playerSelect('matches.player', ui.player)}</div>${ui.deck || ui.player ? '<button class="link-btn" data-act="clear-matches">Clear</button>' : ''}</div>
+    </div>
+    <div class="toolbar"><span class="count">${plural(ms.length, 'match')}${summary}</span>${ui.deck ? `<a class="link-btn" href="#/deck/${encodeURIComponent(ui.deck)}">Deck details</a>` : ''}</div>
+    ${matchList(ms, { emptyText: d.matches.length ? 'Nothing matches these filters.' : 'Tap + to record the first match.' })}`;
+}
+
+/* ------------------------------------------------------------------ view: decks */
+function viewDecks() {
+  const d = state.data, ui = state.ui.decks;
+  const recs = deckRecords(d.matches);
+  const q = norm(ui.q);
+  const rows = d.decks.filter((x) =>
+    (ui.status === 'all' || (ui.status === 'active') === x.active) &&
+    deckMatchesFilters(x, ui) &&
+    (!q || norm(x.name).includes(q) || x.tags.some((t) => norm(t).includes(q)))
+  ).sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name));
+  return `<div class="filters">
+      <input class="input" type="search" placeholder="Search name or tag" data-model="decks.q" value="${esc(ui.q)}">
+      ${segmented('decks.status', ui.status, [['all', 'All'], ['active', 'Active'], ['inactive', 'Inactive']])}
+      <div class="row"><div class="grow">${playerSelect('decks.player', ui.player)}</div></div>
+      <div class="chips">${colorChips('decks.colors', ui.colors, true)}</div>
+    </div>
+    <div class="toolbar"><span class="count">${plural(rows.length, 'deck')}</span><button class="btn sm" data-act="new-deck">${ICON.plus}New deck</button></div>
+    ${rows.length ? `<div class="list">${rows.map((x) => {
+      const rec = recs.get(x.id) || emptyRec();
+      return `<a class="list-item tap" href="#/deck/${encodeURIComponent(x.id)}">
+        ${pips(x.colors)}
+        <div class="li-main">
+          <div class="li-title">${esc(x.name)}</div>
+          <div class="li-sub"><span>${esc(playerNames(x))}</span>${x.active ? '' : '<span class="badge inactive">Inactive</span>'}${x.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+        </div>
+        <div class="li-end"><div class="num" style="font-weight:650">${pct(wr(rec))}</div><div class="num small faint">${rec.m ? recStr(rec) : 'no games'}</div></div>
+        ${ICON.chev}
+      </a>`;
+    }).join('')}</div>` : '<div class="empty"><h2>No decks</h2><p>Nothing matches these filters.</p></div>'}`;
+}
+
+/* ------------------------------------------------------------------ view: deck detail */
+function viewDeck(id) {
+  const d = state.data;
+  const deck = d.deckById.get(id);
+  if (!deck || deck.ghost) return `<div class="empty"><h2>Deck not found</h2><p><a href="#/decks">Back to decks</a></p></div>`;
+  $('#title').textContent = deck.name;
+
+  const ss = d.matches.flatMap(sides).filter((s) => s.deck.id === deck.id);
+  const rec = ss.reduce(addRec, emptyRec());
+  // current streak
+  let streak = '';
+  if (ss.length) { const r0 = ss[0].r; let n = 0; for (const s of ss) { if (s.r === r0) n++; else break; } streak = `${r0}${n}`; }
+
+  const group = (keyFn, labelFn) => {
+    const map = new Map();
+    for (const s of ss) for (const k of keyFn(s)) { if (!map.has(k)) map.set(k, { k, label: labelFn(k, s), rec: emptyRec(), s }); addRec(map.get(k).rec, s); }
+    return [...map.values()];
+  };
+  const opp = group((s) => [s.oppDeck.id], (k, s) => s.oppDeck.name).sort((a, b) => (b.rec.m - a.rec.m) || (wr(b.rec) - wr(a.rec)));
+  const byColor = group((s) => (s.oppDeck.ghost ? [] : s.oppDeck.colors.length ? s.oppDeck.colors : ['C']), (k) => COLOR_NAMES[k])
+    .sort((a, b) => [...COLORS, 'C'].indexOf(a.k) - [...COLORS, 'C'].indexOf(b.k));
+  const byTag = group((s) => (s.oppDeck.ghost ? [] : s.oppDeck.tags.length ? s.oppDeck.tags.map((t) => t.toLowerCase()) : ['untagged']), (k) => k)
+    .sort((a, b) => b.rec.m - a.rec.m);
+  const byPilot = group((s) => (s.player ? [s.player.id] : []), (k, s) => s.player.name);
+  const playKnown = ss.filter((s) => s.onPlay != null);
+  const wrRow = (g, extra = {}) => ({ label: g.label, value: wr(g.rec), valueHtml: `${pct(wr(g.rec))}<small>${recStr(g.rec)}</small>`, title: `${g.label}: ${recStr(g.rec)}`, ...extra });
+
+  return `<div class="deck-hero">
+      <div class="row" style="justify-content:space-between">
+        ${pips(deck.colors, true)}
+        <button class="btn sm" data-act="edit-deck" data-id="${esc(deck.id)}">${ICON.edit}Edit</button>
+      </div>
+      <h2>${esc(deck.name)}</h2>
+      <div class="meta"><span class="badge ${deck.active ? 'active' : 'inactive'}">${deck.active ? 'Active' : 'Inactive'}</span><span>${esc(playerNames(deck))}</span>${deck.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="k-label">Win rate</div><div class="k-value num">${pct(wr(rec))}</div><div class="k-sub num">${recStr(rec)} in ${plural(rec.m, 'match')}</div></div>
+      <div class="kpi"><div class="k-label">Games</div><div class="k-value num">${pct(gwr(rec))}</div><div class="k-sub num">${rec.gw}–${rec.gl} games</div></div>
+      <div class="kpi"><div class="k-label">Streak</div><div class="k-value num">${streak || '—'}</div><div class="k-sub">current</div></div>
+      <div class="kpi"><div class="k-label">Last played</div><div class="k-value" style="font-size:18px;padding-top:5px">${ss[0] ? fmtDate(ss[0].m.date, { day: 'numeric', month: 'short' }) : '—'}</div><div class="k-sub">${ss[0] && ss[0].m.date ? ss[0].m.date.getFullYear() : ''}</div></div>
+    </div>
+    ${ss.length ? `
+    <section class="card"><h2>Form</h2><p class="card-sub">Last ${Math.min(10, ss.length)} matches, newest first</p>
+      <div class="form">${ss.slice(0, 10).map((s) => `<span class="res ${s.r}" title="${esc(fmtDate(s.m.date))} vs ${esc(s.oppDeck.name)} ${s.gw}–${s.gl}">${s.r}</span>`).join('')}</div>
+    </section>
+    ${byPilot.length > 1 ? `<section class="card"><h2>By pilot</h2><p class="card-sub">Match win rate</p>${hbars(byPilot.map((g) => wrRow(g)), { max: 1, axis: 0.5 })}</section>` : ''}
+    ${playKnown.length ? `<section class="card"><h2>Play / draw</h2><p class="card-sub">Where known (${playKnown.length} of ${ss.length})</p>${hbars(
+      [['On the play', true], ['On the draw', false]].map(([l, v]) => ({ label: l, rec: playKnown.filter((s) => s.onPlay === v).reduce(addRec, emptyRec()) })).filter((g) => g.rec.m).map((g) => wrRow(g)), { max: 1, axis: 0.5 })}</section>` : ''}
+    <section class="card"><h2>Matchups</h2><p class="card-sub">Record against each opposing deck</p>
+      ${opp.map((g) => `<div class="mu-row">
+        <div style="min-width:0">${g.s.oppDeck.ghost ? `<span class="name">${esc(g.label)}</span>` : `<a class="name" href="#/deck/${encodeURIComponent(g.k)}" style="text-decoration:none">${esc(g.label)}</a>`}<span class="sub">${pips(g.s.oppDeck.colors)} ${esc(g.s.opp ? g.s.opp.name : '')}</span></div>
+        <span class="num muted small">${recStr(g.rec)}</span>
+        <span class="num" style="font-weight:700;min-width:42px;text-align:right">${pct(wr(g.rec))}</span>
+      </div>`).join('')}
+    </section>
+    <section class="card"><h2>Vs. opponent colors</h2><p class="card-sub">Match win rate against decks containing each color · dashed line = 50%</p>
+      ${hbars(byColor.map((g) => wrRow(g, { icon: `<span class="pip pip-${g.k}">${g.k}</span>` })), { max: 1, axis: 0.5 })}</section>
+    <section class="card"><h2>Vs. opponent deck types</h2><p class="card-sub">Match win rate by opposing tag</p>
+      ${hbars(byTag.map((g) => wrRow(g)), { max: 1, axis: 0.5 })}</section>
+    <div class="section-title">Match history</div>
+    ${matchList(ss.map((s) => s.m), { focusDeckId: deck.id })}
+    ` : '<div class="empty"><h2>No matches yet</h2><p>Record a match with this deck using the + button.</p></div>'}`;
+}
+
+/* ------------------------------------------------------------------ bottom sheets */
+const sheetStack = [];
+function openSheet({ title, render: renderBody, foot, onMount }) {
+  const back = document.createElement('div');
+  back.className = 'sheet-backdrop';
+  back.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+    <div class="sheet-head"><h3>${esc(title)}</h3><button class="icon-btn" data-close aria-label="Close">${ICON.close}</button></div>
+    <div class="sheet-body"></div>
+    ${foot ? `<div class="sheet-foot">${foot}</div>` : ''}
+  </div>`;
+  const s = {
+    el: back, body: back.querySelector('.sheet-body'),
+    refresh() { const st = this.body.scrollTop; this.body.innerHTML = renderBody(); this.body.scrollTop = st; },
+    close() { back.remove(); const i = sheetStack.indexOf(s); if (i >= 0) sheetStack.splice(i, 1); if (!sheetStack.length) document.body.style.overflow = ''; },
+  };
+  back.addEventListener('click', (e) => { if (e.target === back || e.target.closest('[data-close]')) s.close(); });
+  $('#sheet-root').appendChild(back);
+  sheetStack.push(s);
+  document.body.style.overflow = 'hidden';
+  s.refresh();
+  if (onMount) onMount(s);
+  return s;
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && sheetStack.length) sheetStack[sheetStack.length - 1].close(); });
+
+function busy(btn, on, label) {
+  if (!btn) return;
+  if (on) { btn.dataset.label = btn.innerHTML; btn.disabled = true; btn.textContent = label || 'Saving…'; }
+  else { btn.disabled = false; if (btn.dataset.label) btn.innerHTML = btn.dataset.label; }
+}
+
+/* ------------------------------------------------------------------ settings */
+function openSettings() {
+  const sheetUrl = state.sheetId ? `https://docs.google.com/spreadsheets/d/${state.sheetId}/edit` : '';
+  const s = openSheet({
+    title: 'Settings',
+    render: () => {
+      const theme = store.get('theme', 'system');
+      return `
+      <form data-form="sheet">
+        <label class="field"><span class="label">Google Sheet URL or ID</span>
+          <input class="input" name="sheet" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(sheetUrl)}" placeholder="https://docs.google.com/spreadsheets/d/…">
+        </label>
+        <p class="err-text hidden" data-err>That doesn’t look like a Google Sheets link or ID.</p>
+        <div class="row"><button class="btn primary grow" type="submit">Load sheet</button>${sheetUrl ? `<a class="btn" href="${esc(sheetUrl)}" target="_blank" rel="noopener">Open</a>` : ''}</div>
+      </form>
+      <div class="divider"></div>
+      <div class="field"><span class="label">Appearance</span>
+        <div class="segmented big" role="group">${[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button data-theme-set="${v}" class="${theme === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="divider"></div>
+      <div class="field"><span class="label">Write access</span>
+        <div class="account"><span class="dot ${scriptUrl() ? 'on' : ''}"></span><div class="grow small">${scriptUrl()
+          ? 'Connected — matches and decks are saved to the sheet through its Apps Script.'
+          : 'Not set up — the app is view only. The sheet owner adds the Apps Script once (see README), then pastes its URL here.'}</div></div>
+        <form data-form="script">
+          <label class="field" style="margin-bottom:10px"><span class="label">Apps Script web app URL</span>
+            <input class="input" name="url" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(scriptUrl())}" placeholder="https://script.google.com/macros/s/…/exec">
+          </label>
+          <button class="btn ${scriptUrl() ? '' : 'primary'} block" type="submit">${scriptUrl() ? 'Test & update' : 'Connect'}</button>
+        </form>
+      </div>
+      <details class="adv">
+        <summary>Advanced</summary>
+        <div style="height:6px"></div>
+        <button class="btn block danger" data-act="reset">Forget sheet & reset app</button>
+      </details>
+      <p class="hint" style="margin-top:16px">Data ${state.loadedAt ? 'loaded ' + new Date(state.loadedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'not loaded'}</p>`;
+    },
+  });
+  s.el.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const f = e.target;
+    if (f.dataset.form === 'sheet') {
+      if (!setSheet(f.sheet.value)) { $('[data-err]', s.el).classList.remove('hidden'); return; }
+      s.close(); location.hash = '#/home'; load();
+    } else if (f.dataset.form === 'script') {
+      const url = f.url.value.trim();
+      const btn = f.querySelector('button[type=submit]');
+      if (!/^https:\/\/script\.google(usercontent)?\.com\/.+/.test(url)) { toast('Paste the web app URL from Apps Script (https://script.google.com/macros/s/…/exec).', true); return; }
+      (async () => {
+        busy(btn, true, 'Connecting…');
+        try {
+          const info = await callScript('ping', {}, url);
+          await callScript('setConfig', { key: 'scriptUrl', value: url }, url);
+          if (info.title) await callScript('setConfig', { key: 'title', value: info.title }, url);
+          store.set('scriptUrl', url);
+          toast('Connected — saving is enabled for everyone');
+          await load();
+          s.refresh();
+        } catch (err) { busy(btn, false); toast(err.message, true); }
+      })();
+    }
+  });
+  s.el.addEventListener('click', async (e) => {
+    const t = e.target.closest('[data-theme-set]');
+    if (t) { store.set('theme', t.dataset.themeSet); applyTheme(); s.refresh(); return; }
+    const a = e.target.closest('[data-act]');
+    if (!a) return;
+    if (a.dataset.act === 'reset') {
+      ['sheetId', 'cache', 'ui', 'scriptUrl'].forEach((k) => store.del(k));
+      location.hash = ''; location.reload();
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ writes */
+function nextId(list, fallbackPrefix) {
+  let prefix = fallbackPrefix, max = 0, width = 2;
+  for (const x of list) {
+    const m = String(x.id).match(/^([A-Za-z_-]*)(\d+)$/);
+    if (m) { prefix = m[1]; max = Math.max(max, +m[2]); width = Math.max(width, m[2].length); }
+  }
+  return prefix + String(max + 1).padStart(width, '0');
+}
+
+/* ------------------------------------------------------------------ add match */
+function openMatchForm() {
+  const d = state.data;
+  if (!d) { toast('Load a sheet first', true); return; }
+  const ps = realPlayers();
+  const last = d.matches[0];
+  const f = {
+    date: isoDate(new Date()),
+    pa: (last && last.pa && !last.pa.ghost && last.pa.id) || (ps[0] && ps[0].id) || '',
+    pb: (last && last.pb && !last.pb.ghost && last.pb.id) || (ps[1] && ps[1].id) || '',
+    da: '', db: '', result: '', onPlay: '', notes: '', allDecks: false, err: '',
+  };
+  const decksFor = (pid) => state.data.decks.filter((x) => x.active && (f.allDecks || x.playerIds.includes(pid))).sort((a, b) => a.name.localeCompare(b.name));
+  const pName = (id) => { const p = state.data.playerByRef.get(norm(id)); return p ? p.name : '—'; };
+  const sideBox = (key, dkey, label) => {
+    const list = decksFor(f[key]);
+    if (f[dkey] && !list.some((x) => x.id === f[dkey])) f[dkey] = '';
+    return `<div class="side-box">
+      <label class="field"><span class="label">${label}</span>
+        <select class="select" data-f="${key}">${ps.map((p) => `<option value="${esc(p.id)}"${p.id === f[key] ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+      <label class="field"><span class="label"><span>Deck</span><button type="button" class="link-btn" data-new-deck="${key}">+ New deck</button></span>
+        <select class="select" data-f="${dkey}"><option value="">Choose a deck…</option>${list.map((x) => `<option value="${esc(x.id)}"${x.id === f[dkey] ? ' selected' : ''}>${esc(x.name)} · ${x.colors.join('') || 'C'}</option>`).join('')}</select></label>
+      ${!list.length ? `<p class="hint">No active decks for ${esc(pName(f[key]))} yet — add one.</p>` : ''}
+    </div>`;
+  };
+  const results = [[2, 0], [2, 1], [1, 2], [0, 2]];
+  const s = openSheet({
+    title: 'New match',
+    foot: '<button class="btn" data-close>Cancel</button><button class="btn primary" data-save>Save match</button>',
+    render: () => `
+      <label class="field"><span class="label">Date</span><input class="input" type="date" data-f="date" value="${f.date}" max="${isoDate(new Date())}"></label>
+      ${sideBox('pa', 'da', 'Player 1')}
+      <div class="vs">VS</div>
+      ${sideBox('pb', 'db', 'Player 2')}
+      <label class="switch" style="margin-bottom:14px"><span class="small">Show every player’s active decks</span><input type="checkbox" data-f="allDecks" ${f.allDecks ? 'checked' : ''}></label>
+      <div class="field"><span class="label">Result (best of three)</span>
+        <div class="result-grid">${results.map(([a, b]) => { const k = `${a}-${b}`; return `<button type="button" data-result="${k}" class="${f.result === k ? 'on' : ''}"><b>${a}–${b}</b><span>${esc(pName(a > b ? f.pa : f.pb))} wins</span></button>`; }).join('')}</div>
+      </div>
+      <div class="field"><span class="label">On the play <span class="faint" style="font-weight:500">optional</span></span>
+        <div class="segmented">${[['', 'Unknown'], ['a', pName(f.pa)], ['b', pName(f.pb)]].map(([v, l]) => `<button type="button" data-onplay="${v}" class="${f.onPlay === v ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
+      </div>
+      <label class="field"><span class="label">Notes <span class="faint" style="font-weight:500">optional</span></span><input class="input" data-f="notes" value="${esc(f.notes)}" placeholder="e.g. mulligan to 5 in game 3"></label>
+      ${f.err ? `<p class="err-text">${esc(f.err)}</p>` : ''}`,
+  });
+  s.el.addEventListener('change', (e) => {
+    const k = e.target.dataset.f; if (!k) return;
+    f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    if (k === 'pa' || k === 'pb' || k === 'allDecks') s.refresh();
+  });
+  s.el.addEventListener('input', (e) => { if (e.target.dataset.f === 'notes') f.notes = e.target.value; });
+  s.el.addEventListener('click', async (e) => {
+    const r = e.target.closest('[data-result]');
+    if (r) { f.result = r.dataset.result; s.refresh(); return; }
+    const op = e.target.closest('[data-onplay]');
+    if (op) { f.onPlay = op.dataset.onplay; s.refresh(); return; }
+    const nd = e.target.closest('[data-new-deck]');
+    if (nd) {
+      const side = nd.dataset.newDeck;
+      openDeckEditor(null, { playerId: f[side], onSaved: (deck) => { f[side === 'pa' ? 'da' : 'db'] = deck.id; s.refresh(); } });
+      return;
+    }
+    const save = e.target.closest('[data-save]');
+    if (!save) return;
+    f.err = '';
+    if (!f.date) f.err = 'Pick a date.';
+    else if (!f.pa || !f.pb) f.err = 'Pick both players.';
+    else if (f.pa === f.pb) f.err = 'Pick two different players.';
+    else if (!f.da || !f.db) f.err = 'Pick a deck for each player.';
+    else if (!f.result) f.err = 'Pick the result.';
+    if (f.err) { s.refresh(); s.body.scrollTop = s.body.scrollHeight; return; }
+    busy(save, true);
+    try {
+      const D = state.data;
+      const [ga, gb] = f.result.split('-').map(Number);
+      const deck = (id) => D.deckById.get(id);
+      await callScript('addMatch', { data: {
+        date: f.date,
+        playerA: pName(f.pa), deckA: deck(f.da).name,
+        playerB: pName(f.pb), deckB: deck(f.db).name,
+        onPlay: f.onPlay === 'a' ? pName(f.pa) : f.onPlay === 'b' ? pName(f.pb) : '',
+        gamesA: ga, gamesB: gb, notes: f.notes.trim(),
+      } });
+      s.close();
+      toast('Match saved');
+      await load();
+    } catch (err) {
+      busy(save, false);
+      f.err = err.message; s.refresh(); s.body.scrollTop = s.body.scrollHeight;
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ deck editor */
+function openDeckEditor(deckId, opts = {}) {
+  const d = state.data;
+  if (!d) return;
+  const deck = deckId ? d.deckById.get(deckId) : null;
+  const f = deck
+    ? { name: deck.name, colors: [...deck.colors], tags: deck.tags.join(', '), players: [...deck.playerIds], active: deck.active, err: '' }
+    : { name: '', colors: [], tags: '', players: opts.playerId ? [opts.playerId] : [], active: true, err: '' };
+  const tagList = () => splitList(f.tags);
+  const s = openSheet({
+    title: deck ? 'Edit deck' : 'New deck',
+    foot: `<button class="btn" data-close>Cancel</button><button class="btn primary" data-save>${deck ? 'Save changes' : 'Add deck'}</button>`,
+    render: () => {
+      const cur = tagList().map((t) => t.toLowerCase());
+      return `
+      <label class="field"><span class="label">Name</span><input class="input" data-f="name" value="${esc(f.name)}" placeholder="e.g. Izzet Tempo" autocomplete="off"></label>
+      <div class="field"><span class="label">Colors</span>
+        <div class="chips wrap">${COLORS.map((c) => `<button type="button" class="chip mana${f.colors.includes(c) ? ' on' : ''}" data-color="${c}" aria-pressed="${f.colors.includes(c)}" style="padding:0 12px 0 6px"><span class="pip pip-${c}">${c}</span>${COLOR_NAMES[c]}</button>`).join('')}</div>
+        <p class="hint" style="margin:6px 0 0">None selected = colorless.</p>
+      </div>
+      <label class="field"><span class="label">Tags</span><input class="input" data-f="tags" value="${esc(f.tags)}" placeholder="control, artifacts" autocomplete="off" autocapitalize="off"></label>
+      ${d.allTags.length ? `<div class="chips wrap" style="margin:-6px 0 14px">${d.allTags.map((t) => `<button type="button" class="chip${cur.includes(t) ? ' on' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}
+      <div class="field"><span class="label">Players</span>
+        <div class="chips wrap">${realPlayers().map((p) => `<button type="button" class="chip${f.players.includes(p.id) ? ' on' : ''}" data-player="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div>
+      </div>
+      <label class="switch" style="margin-bottom:14px"><span><b>Active</b><br><span class="small faint">Inactive decks are hidden from the league table and the match form</span></span><input type="checkbox" data-f="active" ${f.active ? 'checked' : ''}></label>
+      ${deck ? `<p class="hint">Renaming also updates this deck’s name in the Matches tab.</p>` : ''}
+      ${f.err ? `<p class="err-text">${esc(f.err)}</p>` : ''}`;
+    },
+  });
+  s.el.addEventListener('input', (e) => { const k = e.target.dataset.f; if (k === 'name' || k === 'tags') f[k] = e.target.value; });
+  s.el.addEventListener('change', (e) => {
+    const k = e.target.dataset.f;
+    if (k === 'active') f.active = e.target.checked;
+    if (k === 'tags') s.refresh();
+  });
+  s.el.addEventListener('click', async (e) => {
+    const c = e.target.closest('[data-color]');
+    if (c) { const v = c.dataset.color; f.colors = f.colors.includes(v) ? f.colors.filter((x) => x !== v) : COLORS.filter((x) => x === v || f.colors.includes(x)); s.refresh(); return; }
+    const t = e.target.closest('[data-tag]');
+    if (t) {
+      const v = t.dataset.tag; const list = tagList();
+      const has = list.some((x) => x.toLowerCase() === v);
+      f.tags = (has ? list.filter((x) => x.toLowerCase() !== v) : [...list, v]).join(', ');
+      s.refresh(); return;
+    }
+    const p = e.target.closest('[data-player]');
+    if (p) { const v = p.dataset.player; f.players = f.players.includes(v) ? f.players.filter((x) => x !== v) : [...f.players, v]; s.refresh(); return; }
+    const save = e.target.closest('[data-save]');
+    if (!save) return;
+    const D = state.data;
+    f.name = f.name.trim(); f.err = '';
+    if (!f.name) f.err = 'Give the deck a name.';
+    else if (!f.players.length) f.err = 'Pick at least one player.';
+    else if (D.decks.some((x) => x !== deck && !x.ghost && norm(x.name) === norm(f.name))) f.err = 'A deck with this name already exists. Matches reference decks by name, so names must be unique.';
+    if (f.err) { s.refresh(); s.body.scrollTop = s.body.scrollHeight; return; }
+    busy(save, true);
+    try {
+      const values = {
+        name: f.name, colors: f.colors.join(''), tags: tagList().join(', '),
+        active: f.active, [D.playerCol]: f.players.join(', '),
+      };
+      let id;
+      if (deck) {
+        id = deck.id;
+        await callScript('updateDeck', { id, data: values });
+      } else {
+        id = (await callScript('addDeck', { data: values })).id;
+      }
+      s.close();
+      toast(deck ? 'Deck updated' : 'Deck added');
+      await load();
+      if (opts.onSaved) {
+        const saved = state.data && (state.data.deckById.get(id) || state.data.decks.find((x) => norm(x.name) === norm(f.name)));
+        if (saved) opts.onSaved(saved);
+      }
+    } catch (err) {
+      busy(save, false);
+      f.err = err.message; s.refresh(); s.body.scrollTop = s.body.scrollHeight;
+    }
+  });
+}
+
+/* ------------------------------------------------------------------ events */
+document.addEventListener('click', async (e) => {
+  if (e.target.closest('#sheet-root')) return; // sheets handle their own clicks
+  const set = e.target.closest('[data-set]');
+  if (set) {
+    const path = set.dataset.set;
+    if (path === 'table.sort') { setPath('table.dir', getPath('table.sort') === set.dataset.val ? -getPath('table.dir') : -1); }
+    setPath(path, set.dataset.val); render(); return;
+  }
+  const tog = e.target.closest('[data-toggle]');
+  if (tog) {
+    const path = tog.dataset.toggle, v = tog.dataset.val;
+    let arr = getPath(path).slice();
+    if (path.endsWith('colors') && (v === 'C' || arr.includes('C'))) arr = arr.includes(v) ? [] : [v];
+    else arr = arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
+    setPath(path, arr); render(); return;
+  }
+  const sort = e.target.closest('[data-sort]');
+  if (sort) {
+    const k = sort.dataset.sort;
+    setPath('table.dir', getPath('table.sort') === k ? -getPath('table.dir') : -1);
+    setPath('table.sort', k); render(); return;
+  }
+  const act = e.target.closest('[data-act]');
+  if (act) {
+    const a = act.dataset.act;
+    if (a === 'settings') openSettings();
+    else if (a === 'refresh') load();
+    else if (a === 'flip-dir') { setPath('table.dir', -getPath('table.dir')); render(); }
+    else if (a === 'clear-table') { setPath('table.player', ''); setPath('table.colors', []); setPath('table.tags', []); render(); }
+    else if (a === 'clear-matches') { setPath('matches.deck', ''); setPath('matches.player', ''); render(); }
+    else if (a === 'new-deck') openDeckEditor(null);
+    else if (a === 'edit-deck') openDeckEditor(act.dataset.id);
+    return;
+  }
+  const href = e.target.closest('[data-href]');
+  if (href && !e.target.closest('a')) { location.hash = href.dataset.href; }
+});
+
+function onModel(e) {
+  const el = e.target.closest('[data-model]');
+  if (!el || el.closest('#sheet-root')) return;
+  const v = el.type === 'checkbox' ? el.checked : el.value;
+  setPath(el.dataset.model, v);
+  render();
+}
+document.addEventListener('change', (e) => { if (e.target.type !== 'search' && e.target.type !== 'text') onModel(e); });
+document.addEventListener('input', (e) => { if (e.target.type === 'search' || e.target.type === 'text') onModel(e); });
+
+document.addEventListener('submit', (e) => {
+  const f = e.target;
+  if (f.dataset.form !== 'onboard') return;
+  e.preventDefault();
+  if (!setSheet(f.sheet.value)) { $('#onboard-err').classList.remove('hidden'); return; }
+  load();
+});
+
+$('#btn-settings').addEventListener('click', openSettings);
+$('#btn-refresh').addEventListener('click', () => load({ toast: true }));
+$('#btn-add').addEventListener('click', openMatchForm);
+$('#btn-back').addEventListener('click', () => { if (history.length > 1) history.back(); else location.hash = '#/decks'; });
+window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+
+/* ------------------------------------------------------------------ boot */
+applyTheme();
+(function boot() {
+  const cache = store.get('cache', null);
+  if (state.sheetId && cache && cache.id === state.sheetId) {
+    try { state.data = buildModel(cache.raw); state.config = state.data.config; state.loadedAt = cache.at; } catch (e) { /* ignore bad cache */ }
+  }
+  render();
+  if (state.sheetId) load();
+})();
