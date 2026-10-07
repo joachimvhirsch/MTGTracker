@@ -363,3 +363,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--ink-2); pa
 
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 .list-item > .pips { min-width: 60px; }
+/* Custom color icons (icons/*.svg) */
+.pip.icon { background: none; box-shadow: none; }
+.pip.icon img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.chip.mana:not(.on) .pip.icon { opacity: .45; filter: grayscale(.6); }

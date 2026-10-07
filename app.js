@@ -337,9 +337,31 @@ const ICON = {
   close: '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
 };
 
+/* Optional custom color icons: icons/W.svg, U.svg, B.svg, R.svg, G.svg, C.svg next to index.html.
+   Each one is used if it loads; otherwise the letter pip is shown. */
+const ICON_DIR = 'icons/';
+const customIcons = {};
+function probeIcons() {
+  [...COLORS, 'C'].forEach((c) => {
+    const img = new Image();
+    img.onload = () => { customIcons[c] = img.src; scheduleRender(); };
+    img.src = ICON_DIR + c + '.svg';
+  });
+}
+let renderQueued = false;
+function scheduleRender() {
+  if (renderQueued) return;
+  renderQueued = true;
+  requestAnimationFrame(() => { renderQueued = false; render(); sheetStack.forEach((s) => s.refresh()); });
+}
+function pip(c, cls = '') {
+  if (customIcons[c]) return `<span class="pip icon${cls ? ' ' + cls : ''}" role="img" aria-label="${COLOR_NAMES[c]}"><img src="${customIcons[c]}" alt=""></span>`;
+  return `<span class="pip pip-${c}${cls ? ' ' + cls : ''}" role="img" aria-label="${COLOR_NAMES[c]}">${c}</span>`;
+}
+
 function pips(colors, big) {
   const cs = colors && colors.length ? colors : ['C'];
-  return `<span class="pips" title="${cs.map((c) => COLOR_NAMES[c]).join(', ')}">${cs.map((c) => `<span class="pip pip-${c}${big ? ' lg' : ''}">${c}</span>`).join('')}</span>`;
+  return `<span class="pips" title="${cs.map((c) => COLOR_NAMES[c]).join(', ')}">${cs.map((c) => pip(c, big ? 'lg' : '')).join('')}</span>`;
 }
 function playerNames(deck) {
   const d = state.data;
@@ -410,7 +432,7 @@ function filterPeriod(matches, period) {
 
 function colorChips(path, selected, withColorless) {
   const list = withColorless ? [...COLORS, 'C'] : COLORS;
-  return list.map((c) => `<button class="chip mana${selected.includes(c) ? ' on' : ''}" data-toggle="${path}" data-val="${c}" aria-pressed="${selected.includes(c)}" aria-label="${COLOR_NAMES[c]}"><span class="pip pip-${c}">${c}</span></button>`).join('');
+  return list.map((c) => `<button class="chip mana${selected.includes(c) ? ' on' : ''}" data-toggle="${path}" data-val="${c}" aria-pressed="${selected.includes(c)}" aria-label="${COLOR_NAMES[c]}">${pip(c)}</button>`).join('');
 }
 function playerSelect(path, value, allLabel = 'All players') {
   return `<select class="select sm" data-model="${path}"><option value="">${allLabel}</option>${realPlayers().map((p) => `<option value="${esc(p.id)}"${p.id === value ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select>`;
@@ -422,7 +444,7 @@ function segmented(path, value, options, cls = '') {
 /* ------------------------------------------------------------------ views: onboarding / errors */
 function viewOnboarding() {
   return `<div class="onboard">
-    <div class="logo">${COLORS.map((c) => `<span class="pip lg pip-${c}">${c}</span>`).join('')}</div>
+    <div class="logo">${COLORS.map((c) => pip(c, 'lg')).join('')}</div>
     <h2>Track your league</h2>
     <p class="lead">Connect the Google Sheet that holds your players, decks and matches.</p>
     <form data-form="onboard">
@@ -492,7 +514,7 @@ function viewHome() {
     const st = cStat[c];
     const played = ui.colorMetric === 'played';
     return {
-      label: COLOR_NAMES[c], icon: `<span class="pip pip-${c}">${c}</span>`,
+      label: COLOR_NAMES[c], icon: pip(c),
       value: played ? st.n : wr(st.rec), color: `var(--mana-${c})`, ringed: true,
       valueHtml: played ? `${st.n}<small>${pct(st.n / totalSides)}</small>` : `${pct(wr(st.rec))}<small>${recStr(st.rec)}</small>`,
       title: `${COLOR_NAMES[c]}: in ${st.n} of ${totalSides} decks played · ${recStr(st.rec)}`,
@@ -698,7 +720,7 @@ function viewDeck(id) {
       </div>`).join('')}
     </section>
     <section class="card"><h2>Vs. opponent colors</h2><p class="card-sub">Match win rate against decks containing each color · dashed line = 50%</p>
-      ${hbars(byColor.map((g) => wrRow(g, { icon: `<span class="pip pip-${g.k}">${g.k}</span>` })), { max: 1, axis: 0.5 })}</section>
+      ${hbars(byColor.map((g) => wrRow(g, { icon: pip(g.k) })), { max: 1, axis: 0.5 })}</section>
     <section class="card"><h2>Vs. opponent deck types</h2><p class="card-sub">Match win rate by opposing tag</p>
       ${hbars(byTag.map((g) => wrRow(g)), { max: 1, axis: 0.5 })}</section>
     <div class="section-title">Match history</div>
@@ -931,7 +953,7 @@ function openDeckEditor(deckId, opts = {}) {
       return `
       <label class="field"><span class="label">Name</span><input class="input" data-f="name" value="${esc(f.name)}" placeholder="e.g. Izzet Tempo" autocomplete="off"></label>
       <div class="field"><span class="label">Colors</span>
-        <div class="chips wrap">${COLORS.map((c) => `<button type="button" class="chip mana${f.colors.includes(c) ? ' on' : ''}" data-color="${c}" aria-pressed="${f.colors.includes(c)}" style="padding:0 12px 0 6px"><span class="pip pip-${c}">${c}</span>${COLOR_NAMES[c]}</button>`).join('')}</div>
+        <div class="chips wrap">${COLORS.map((c) => `<button type="button" class="chip mana${f.colors.includes(c) ? ' on' : ''}" data-color="${c}" aria-pressed="${f.colors.includes(c)}" style="padding:0 12px 0 6px">${pip(c)}${COLOR_NAMES[c]}</button>`).join('')}</div>
         <p class="hint" style="margin:6px 0 0">None selected = colorless.</p>
       </div>
       <label class="field"><span class="label">Tags</span><input class="input" data-f="tags" value="${esc(f.tags)}" placeholder="control, artifacts" autocomplete="off" autocapitalize="off"></label>
@@ -1062,6 +1084,7 @@ window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); }
 
 /* ------------------------------------------------------------------ boot */
 applyTheme();
+probeIcons();
 (function boot() {
   const cache = store.get('cache', null);
   if (state.sheetId && cache && cache.id === state.sheetId) {
