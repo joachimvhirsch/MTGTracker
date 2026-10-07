@@ -66,13 +66,16 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .hidden, [hidden] { display: none !important; }
 
 /* ---------- Top bar ---------- */
-.topbar {
+.chrome {
   position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: center; gap: 4px;
-  padding: calc(env(safe-area-inset-top) + 8px) 8px 8px 16px;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
+}
+.topbar {
+  display: flex; align-items: center; gap: 4px;
+  padding: calc(env(safe-area-inset-top) + 6px) 8px 2px 16px;
+  max-width: 720px; margin: 0 auto;
 }
 .topbar-title { flex: 1; min-width: 0; }
 .topbar h1 { margin: 0; font-size: 18px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -90,7 +93,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 /* ---------- Layout ---------- */
 main {
   max-width: 720px; margin: 0 auto;
-  padding: 14px 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 90px);
+  padding: 14px 16px calc(env(safe-area-inset-bottom) + 100px);
   outline: none;
 }
 .card {
@@ -103,28 +106,28 @@ main {
 
 /* ---------- Tab bar & FAB ---------- */
 .tabbar {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   display: grid; grid-template-columns: repeat(4, 1fr);
-  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom);
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  border-top: 1px solid var(--line);
+  max-width: 720px; margin: 0 auto; padding: 0 8px;
 }
 .tabbar a {
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  text-decoration: none; color: var(--ink-3); font-size: 11px; font-weight: 550;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 44px; text-decoration: none; color: var(--ink-3); font-size: 13.5px; font-weight: 600;
+  border-bottom: 2.5px solid transparent;
 }
+.tabbar a svg { width: 18px; height: 18px; }
+@media (max-width: 360px) { .tabbar a svg { display: none; } }
+.tabbar a.active { border-bottom-color: var(--accent); }
 .tabbar a.active { color: var(--accent); }
 .fab {
   position: fixed; z-index: 21; right: max(16px, calc(50% - 360px + 16px));
-  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 16px);
+  bottom: calc(env(safe-area-inset-bottom) + 20px);
   width: 58px; height: 58px; border-radius: 18px; border: 0; cursor: pointer;
   background: var(--accent); color: var(--accent-ink);
   display: grid; place-items: center; box-shadow: 0 6px 20px rgba(60,40,140,.35);
 }
 .fab svg { width: 28px; height: 28px; stroke-width: 2.4; }
 .fab:active { transform: scale(.96); }
-body.no-chrome .tabbar, body.no-chrome .fab, body.no-chrome #btn-refresh { display: none; }
+body.no-chrome .tabbar, body.no-chrome .chrome .tabbar, body.no-chrome .fab, body.no-chrome #btn-refresh { display: none; }
 
 /* ---------- Controls ---------- */
 .btn {
@@ -353,7 +356,7 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--ink-2); pa
 
 /* ---------- Toast ---------- */
 #toast {
-  position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 70px); z-index: 60;
+  position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 112px); z-index: 60;
   transform: translate(-50%, -20px); opacity: 0; pointer-events: none; transition: all .2s;
   background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; font-weight: 550;
   max-width: calc(100vw - 32px); box-shadow: var(--shadow);
@@ -367,3 +370,22 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--ink-2); pa
 .pip.icon { background: none; box-shadow: none; }
 .pip.icon img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .chip.mana:not(.on) .pip.icon { opacity: .45; filter: grayscale(.6); }
+
+.league th.pl, .league td.pl { text-align: left; }
+.league td.pl { color: var(--ink-2); font-size: 13.5px; min-width: 56px; }
+
+/* Manual result entry */
+.score-input { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stepper { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px 6px; text-align: center; min-width: 0; }
+.st-label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 6px; }
+.st-ctrl { display: flex; align-items: center; justify-content: center; gap: 2px; }
+.st-ctrl button { width: 32px; height: 36px; border: 0; border-radius: 9px; background: var(--surface-2); font-size: 20px; line-height: 1; cursor: pointer; color: var(--ink); flex: none; }
+.st-ctrl button:active { background: var(--accent-soft); }
+.st-ctrl input { width: 34px; height: 36px; border: 0; background: transparent; text-align: center; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; -moz-appearance: textfield; outline: none; padding: 0; }
+.st-ctrl input::-webkit-outer-spin-button, .st-ctrl input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.quick-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.quick-picks .chip { min-height: 30px; padding: 0 10px; font-variant-numeric: tabular-nums; }
+.score-wrap { display: flex; flex-direction: column; align-items: center; }
+.score-wrap .draws { font-size: 11px; color: var(--ink-3); font-weight: 600; white-space: nowrap; }
+.league .rec { display: block; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; margin-top: 2px; }
+.league th, .league td { padding-left: 4px; padding-right: 4px; }

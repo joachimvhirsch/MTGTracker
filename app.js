@@ -183,10 +183,11 @@ function buildModel(raw) {
     const pa = resolvePlayer(m.playera), pb = resolvePlayer(m.playerb);
     if (/^\d{4}-/.test(m.date)) dateStyle = 'iso'; else if (/\//.test(m.date)) dateStyle = 'mdy';
     const ga = parseInt(m.gamesa, 10) || 0, gb = parseInt(m.gamesb, 10) || 0;
+    const gd = parseInt(m.draws ?? m.gamesd ?? m.gamesdraw ?? m.draw ?? '', 10) || 0;
     return {
       id: m.id || 'row' + m._row, date: parseDate(m.date), dateRaw: m.date,
       pa, pb, da: resolveDeck(m.decka, pa), db: resolveDeck(m.deckb, pb),
-      ga, gb, onPlay: m.onplay || '', notes: m.notes || '', _row: m._row,
+      ga, gb, gd, onPlay: m.onplay || '', notes: m.notes || '', _row: m._row,
     };
   });
   matches.sort((a, b) => ((b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0)) || (b._row - a._row));
@@ -230,7 +231,7 @@ function deckRecords(matches) {
 
 /* ------------------------------------------------------------------ state */
 const UI_DEFAULTS = {
-  home: { period: 'all', activeOnly: false, colorMetric: 'played', tagMetric: 'played' },
+  home: { period: 'all', colorMetric: 'played', tagMetric: 'played' },
   table: { sort: 'wr', dir: -1, player: '', colors: [], tags: [] },
   matches: { deck: '', player: '' },
   decks: { q: '', status: 'all', player: '', colors: [] },
@@ -399,7 +400,7 @@ function matchRow(m, focusDeckId) {
   const s = sides(m);
   return `<div class="match" ${focusDeckId ? '' : ''}>
     ${sideHtml(m.pa, m.da, aw, bw, 'a', s[0].onPlay === true)}
-    <div class="score"><span class="${aw ? 'w' : bw ? 'l' : ''}">${m.ga}</span><span class="sep">:</span><span class="${bw ? 'w' : aw ? 'l' : ''}">${m.gb}</span></div>
+    <div class="score-wrap"><div class="score"><span class="${aw ? 'w' : bw ? 'l' : ''}">${m.ga}</span><span class="sep">:</span><span class="${bw ? 'w' : aw ? 'l' : ''}">${m.gb}</span></div>${m.gd ? `<div class="draws">+${plural(m.gd, 'draw')}</div>` : ''}</div>
     ${sideHtml(m.pb, m.db, bw, aw, 'b', s[1].onPlay === true)}
     ${m.notes ? `<div class="note">${esc(m.notes)}</div>` : ''}
   </div>`;
@@ -474,7 +475,6 @@ function viewLoadError() {
 function viewHome() {
   const d = state.data, ui = state.ui.home;
   let ms = filterPeriod(d.matches, ui.period);
-  if (ui.activeOnly) ms = ms.filter((m) => m.da.active && m.db.active);
   const allSides = ms.flatMap(sides);
 
   // KPIs
@@ -553,15 +553,10 @@ function viewHome() {
     <div class="legend-note">Decks with several tags count toward each tag.</div>
   </section>`;
 
-  const recent = ms.slice(0, 5);
-  const recentCard = `<div class="toolbar" style="margin-top:4px"><div class="section-title" style="margin:0">Recent matches</div><a class="link-btn" href="#/matches">See all</a></div>
-    ${recent.length ? `<div class="list">${recent.map((m) => matchRow(m)).join('')}</div>` : '<p class="muted small">No matches in this period.</p>'}`;
-
   return `<div class="filters">
       ${segmented('home.period', ui.period, [['all', 'All time'], ['year', 'This year'], ['90', '90 days'], ['30', '30 days']])}
-      <label class="switch"><span><b>Active decks only</b><br><span class="small faint">Count only matches where both decks are active</span></span><input type="checkbox" data-model="home.activeOnly" ${ui.activeOnly ? 'checked' : ''}></label>
     </div>
-    ${kpis}${playersCard}${colorsCard}${tagsCard}${recentCard}`;
+    ${kpis}${playersCard}${colorsCard}${tagsCard}`;
 }
 
 /* ------------------------------------------------------------------ view: league table */
@@ -577,7 +572,7 @@ function deckMatchesFilters(deck, f) {
 function viewTable() {
   const d = state.data, ui = state.ui.table;
   const recs = deckRecords(d.matches);
-  let rows = d.decks.filter((x) => x.active && deckMatchesFilters(x, ui)).map((deck) => ({ deck, rec: recs.get(deck.id) || emptyRec(), pn: playerNames(deck) }));
+  let rows = d.decks.filter((x) => x.active && deckMatchesFilters(x, { ...ui, player: '' })).map((deck) => ({ deck, rec: recs.get(deck.id) || emptyRec(), pn: playerNames(deck) }));
   const byWr = (a, b) => ((wr(b.rec) ?? -1) - (wr(a.rec) ?? -1)) || ((gwr(b.rec) ?? -1) - (gwr(a.rec) ?? -1)) || (b.rec.m - a.rec.m) || a.deck.name.localeCompare(b.deck.name);
   const cmp = {
     wr: byWr,
@@ -585,24 +580,23 @@ function viewTable() {
     player: (a, b) => a.pn.localeCompare(b.pn) || byWr(a, b),
   }[ui.sort] || byWr;
   rows.sort((a, b) => cmp(a, b) * (ui.dir === -1 ? 1 : -1));
-  const nFilters = (ui.player ? 1 : 0) + ui.colors.length + ui.tags.length;
+  const nFilters = ui.colors.length + ui.tags.length;
   const arrow = (ui.sort === 'player') === (ui.dir === -1) ? '↑' : '↓';
   const th = (key, label) => `<button data-sort="${key}" class="${ui.sort === key ? 'on' : ''}">${label}${ui.sort === key ? ' ' + arrow : ''}</button>`;
 
   return `<div class="filters">
       <div><div class="filter-label">Sort by</div>${segmented('table.sort', ui.sort, [['wr', 'Win rate'], ['player', 'Player'], ['matches', 'Matches']])}</div>
-      <div class="row"><div class="grow">${playerSelect('table.player', ui.player)}</div>${nFilters ? '<button class="link-btn" data-act="clear-table">Clear filters</button>' : ''}</div>
       <div class="chips">${colorChips('table.colors', ui.colors, true)}</div>
       ${d.allTags.length ? `<div class="chips">${d.allTags.map((t) => `<button class="chip${ui.tags.includes(t) ? ' on' : ''}" data-toggle="table.tags" data-val="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}
     </div>
-    <div class="toolbar"><span class="count">${plural(rows.length, 'active deck')}</span><button class="link-btn" data-act="flip-dir">${ui.sort === 'player' ? (ui.dir === -1 ? 'A → Z' : 'Z → A') : (ui.dir === -1 ? 'Highest first' : 'Lowest first')}</button></div>
+    <div class="toolbar"><span class="count">${plural(rows.length, 'active deck')}${nFilters ? ' · <button class="link-btn" data-act="clear-table">Clear filters</button>' : ''}</span><button class="link-btn" data-act="flip-dir">${ui.sort === 'player' ? (ui.dir === -1 ? 'A → Z' : 'Z → A') : (ui.dir === -1 ? 'Highest first' : 'Lowest first')}</button></div>
     ${rows.length ? `<div class="card" style="padding:10px 12px 4px"><table class="league">
-      <thead><tr><th>#</th><th>${th('player', 'Deck')}</th><th>${th('matches', 'M')}</th><th>W–L</th><th>${th('wr', 'Win')}</th></tr></thead>
+      <thead><tr><th>#</th><th>Deck</th><th class="pl">${th('player', 'Player')}</th><th>${th('matches', 'M')}</th><th>${th('wr', 'Win')}</th></tr></thead>
       <tbody>${rows.map((r, i) => `<tr class="tap" data-href="#/deck/${encodeURIComponent(r.deck.id)}">
         <td class="num">${i + 1}</td>
-        <td class="deck-cell"><span class="name">${esc(r.deck.name)}</span><span class="meta">${pips(r.deck.colors)}<span>${esc(r.pn)}</span></span></td>
-        <td class="num">${r.rec.m}</td>
-        <td class="num muted" style="white-space:nowrap">${recStr(r.rec)}</td>
+        <td class="deck-cell"><span class="name">${esc(r.deck.name)}</span><span class="meta">${pips(r.deck.colors)}</span></td>
+        <td class="pl">${esc(r.pn)}</td>
+        <td class="num"><span style="font-weight:600">${r.rec.m}</span><span class="rec">${recStr(r.rec)}</span></td>
         <td class="num"><span class="wr">${pct(wr(r.rec))}</span><span class="wr-bar"><i style="width:${(wr(r.rec) || 0) * 100}%"></i></span></td>
       </tr>`).join('')}</tbody></table></div>` : '<div class="empty"><h2>No decks</h2><p>No active deck matches these filters.</p></div>'}`;
 }
@@ -854,7 +848,7 @@ function openMatchForm() {
     date: isoDate(new Date()),
     pa: (last && last.pa && !last.pa.ghost && last.pa.id) || (ps[0] && ps[0].id) || '',
     pb: (last && last.pb && !last.pb.ghost && last.pb.id) || (ps[1] && ps[1].id) || '',
-    da: '', db: '', result: '', onPlay: '', notes: '', allDecks: false, err: '',
+    da: '', db: '', ga: null, gb: null, gd: 0, onPlay: '', notes: '', allDecks: false, err: '',
   };
   const decksFor = (pid) => state.data.decks.filter((x) => x.active && (f.allDecks || x.playerIds.includes(pid))).sort((a, b) => a.name.localeCompare(b.name));
   const pName = (id) => { const p = state.data.playerByRef.get(norm(id)); return p ? p.name : '—'; };
@@ -870,6 +864,15 @@ function openMatchForm() {
     </div>`;
   };
   const results = [[2, 0], [2, 1], [1, 2], [0, 2]];
+  const stepper = (label, key) => `<div class="stepper">
+      <span class="st-label">${esc(label)}</span>
+      <div class="st-ctrl">
+        <button type="button" data-step="${key}" data-d="-1" aria-label="${esc(label)} minus one">−</button>
+        <input type="number" inputmode="numeric" min="0" max="9" data-f="${key}" value="${f[key] ?? ''}" placeholder="0" aria-label="${esc(label)}">
+        <button type="button" data-step="${key}" data-d="1" aria-label="${esc(label)} plus one">+</button>
+      </div>
+    </div>`;
+  const clampGames = (v) => (v === '' || v == null || isNaN(v) ? null : Math.max(0, Math.min(9, Math.round(Number(v)))));
   const s = openSheet({
     title: 'New match',
     foot: '<button class="btn" data-close>Cancel</button><button class="btn primary" data-save>Save match</button>',
@@ -879,8 +882,14 @@ function openMatchForm() {
       <div class="vs">VS</div>
       ${sideBox('pb', 'db', 'Player 2')}
       <label class="switch" style="margin-bottom:14px"><span class="small">Show every player’s active decks</span><input type="checkbox" data-f="allDecks" ${f.allDecks ? 'checked' : ''}></label>
-      <div class="field"><span class="label">Result (best of three)</span>
-        <div class="result-grid">${results.map(([a, b]) => { const k = `${a}-${b}`; return `<button type="button" data-result="${k}" class="${f.result === k ? 'on' : ''}"><b>${a}–${b}</b><span>${esc(pName(a > b ? f.pa : f.pb))} wins</span></button>`; }).join('')}</div>
+      <div class="field"><span class="label">Result <span class="faint" style="font-weight:500">games won</span></span>
+        <div class="score-input">
+          ${stepper(pName(f.pa), 'ga')}
+          ${stepper(pName(f.pb), 'gb')}
+          ${stepper('Draws', 'gd')}
+        </div>
+        <div class="quick-picks"><span class="faint small">Quick pick</span>${results.map(([a, b]) => `<button type="button" class="chip${f.ga === a && f.gb === b && !f.gd ? ' on' : ''}" data-result="${a}-${b}">${a}–${b}</button>`).join('')}</div>
+        ${f.ga != null && f.gb != null && f.ga + f.gb + (f.gd || 0) > 0 ? `<p class="hint" style="margin:8px 0 0">${f.ga === f.gb ? 'Match counts as a draw' : esc(pName(f.ga > f.gb ? f.pa : f.pb)) + ' wins the match'}</p>` : ''}
       </div>
       <div class="field"><span class="label">On the play <span class="faint" style="font-weight:500">optional</span></span>
         <div class="segmented">${[['', 'Unknown'], ['a', pName(f.pa)], ['b', pName(f.pb)]].map(([v, l]) => `<button type="button" data-onplay="${v}" class="${f.onPlay === v ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
@@ -890,13 +899,16 @@ function openMatchForm() {
   });
   s.el.addEventListener('change', (e) => {
     const k = e.target.dataset.f; if (!k) return;
+    if (k === 'ga' || k === 'gb' || k === 'gd') { f[k] = clampGames(e.target.value); if (k === 'gd' && f.gd == null) f.gd = 0; s.refresh(); return; }
     f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     if (k === 'pa' || k === 'pb' || k === 'allDecks') s.refresh();
   });
   s.el.addEventListener('input', (e) => { if (e.target.dataset.f === 'notes') f.notes = e.target.value; });
   s.el.addEventListener('click', async (e) => {
     const r = e.target.closest('[data-result]');
-    if (r) { f.result = r.dataset.result; s.refresh(); return; }
+    if (r) { [f.ga, f.gb] = r.dataset.result.split('-').map(Number); f.gd = 0; s.refresh(); return; }
+    const st = e.target.closest('[data-step]');
+    if (st) { const k = st.dataset.step; f[k] = clampGames((f[k] || 0) + Number(st.dataset.d)); if (k !== 'gd' && f[k] === 0 && Number(st.dataset.d) < 0) f[k] = 0; s.refresh(); return; }
     const op = e.target.closest('[data-onplay]');
     if (op) { f.onPlay = op.dataset.onplay; s.refresh(); return; }
     const nd = e.target.closest('[data-new-deck]');
@@ -912,12 +924,13 @@ function openMatchForm() {
     else if (!f.pa || !f.pb) f.err = 'Pick both players.';
     else if (f.pa === f.pb) f.err = 'Pick two different players.';
     else if (!f.da || !f.db) f.err = 'Pick a deck for each player.';
-    else if (!f.result) f.err = 'Pick the result.';
+    else if (f.ga == null || f.gb == null) f.err = 'Enter the games won by each player (0 if none).';
+    else if (f.ga + f.gb + (f.gd || 0) === 0) f.err = 'Enter at least one game.';
     if (f.err) { s.refresh(); s.body.scrollTop = s.body.scrollHeight; return; }
     busy(save, true);
     try {
       const D = state.data;
-      const [ga, gb] = f.result.split('-').map(Number);
+      const ga = f.ga, gb = f.gb, gd = f.gd || 0;
       const deck = (id) => D.deckById.get(id);
       await callScript('addMatch', { data: {
         date: f.date,
@@ -925,6 +938,7 @@ function openMatchForm() {
         playerB: pName(f.pb), deckB: deck(f.db).name,
         onPlay: f.onPlay === 'a' ? pName(f.pa) : f.onPlay === 'b' ? pName(f.pb) : '',
         gamesA: ga, gamesB: gb, notes: f.notes.trim(),
+        ...(gd ? { draws: gd } : {}),
       } });
       s.close();
       toast('Match saved');
@@ -1048,7 +1062,7 @@ document.addEventListener('click', async (e) => {
     if (a === 'settings') openSettings();
     else if (a === 'refresh') load();
     else if (a === 'flip-dir') { setPath('table.dir', -getPath('table.dir')); render(); }
-    else if (a === 'clear-table') { setPath('table.player', ''); setPath('table.colors', []); setPath('table.tags', []); render(); }
+    else if (a === 'clear-table') { setPath('table.colors', []); setPath('table.tags', []); render(); }
     else if (a === 'clear-matches') { setPath('matches.deck', ''); setPath('matches.player', ''); render(); }
     else if (a === 'new-deck') openDeckEditor(null);
     else if (a === 'edit-deck') openDeckEditor(act.dataset.id);
