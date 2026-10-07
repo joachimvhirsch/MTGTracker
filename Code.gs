@@ -1,5 +1,5 @@
 /**
- * MTG League — write bridge for the Google Sheet.
+ * MTG Tracker — write bridge for the Google Sheet.
  *
  * Setup (once, by the sheet owner):
  *   1. In the sheet: Extensions → Apps Script. Replace everything in Code.gs with this file. Save.
@@ -7,7 +7,7 @@
  *        Execute as:      Me
  *        Who has access:  Anyone
  *      Deploy, approve the permissions, copy the Web app URL (ends in /exec).
- *   3. In the MTG League app: Settings → Write access → paste the URL → Connect.
+ *   3. In the MTG Tracker app: Settings → Write access → paste the URL → Connect.
  *      (The app stores the URL in a "Config" tab so everyone else gets it automatically.)
  *
  * After changing this code later, use Deploy → Manage deployments → Edit → Version: New version,
@@ -15,10 +15,11 @@
  */
 
 var TABS = { players: 'Players', decks: 'Decks', matches: 'Matches', config: 'Config' };
-var VERSION = 1;
+var VERSION = 2;
+var AUTO_COLUMNS = ['draws'];
 
 function doGet() {
-  return json_({ ok: true, app: 'mtg-league', version: VERSION, message: 'MTG League write bridge is running. Paste this page\'s URL into the app under Settings → Write access.' });
+  return json_({ ok: true, app: 'mtg-tracker', version: VERSION, message: 'MTG Tracker write bridge is running. Paste this page\'s URL into the app under Settings → Write access.' });
 }
 
 function doPost(e) {
@@ -122,6 +123,13 @@ function addRow_(ss, tabName, data, prefix, width) {
   var lower = {};
   Object.keys(data).forEach(function (k) { lower[k.toLowerCase()] = data[k]; });
   if (!lower.id) lower.id = nextId_(sh, h, prefix, width);
+  // Optional columns the app may send: create the header the first time they're used.
+  AUTO_COLUMNS.forEach(function (k) {
+    if (lower[k] != null && lower[k] !== '' && h.indexOf(k) < 0) {
+      sh.getRange(1, h.length + 1).setValue(k);
+      h.push(k);
+    }
+  });
   var keyCols = ['id', 'name', 'playera', 'date'].map(function (k) { return h.indexOf(k); });
   var row = lastDataRow_(sh, keyCols) + 1;
   writeCells_(sh, h, row, lower);

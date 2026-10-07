@@ -1,4 +1,4 @@
-/* MTG League — mobile tracker backed by a Google Sheet.
+/* MTG Tracker — mobile tracker backed by a Google Sheet.
  * Plain JS, no build step. Data lives in the sheet (tabs: Players, Decks, Matches).
  */
 'use strict';
@@ -71,6 +71,41 @@ function normColors(v) {
 }
 function colLetter(n) { let s = ''; n++; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
 const qTab = (t) => `'${t.replace(/'/g, "''")}'`;
+
+/* ------------------------------------------------------------------ password-locked sheet link */
+// Format: v1.<iterations>.<salt>.<iv>.<ciphertext> (base64). PBKDF2-SHA256 → AES-GCM-256, all in the browser.
+const KDF_ITER = 310000;
+const b64enc = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const b64dec = (str) => Uint8Array.from(atob(str), (c) => c.charCodeAt(0));
+async function deriveKey(password, salt, iterations) {
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function lockSheetId(sheetId, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKey(password, salt, KDF_ITER);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(sheetId));
+  return ['v1', KDF_ITER, b64enc(salt), b64enc(iv), b64enc(ct)].join('.');
+}
+async function unlockSheetId(blob, password) {
+  const [v, iter, salt, iv, ct] = String(blob).trim().split('.');
+  if (v !== 'v1' || !ct) throw new Error('The locked sheet in config.js is damaged. Create it again in Settings → Advanced.');
+  const key = await deriveKey(password, b64dec(salt), Number(iter));
+  try {
+    return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64dec(iv) }, key, b64dec(ct)));
+  } catch (e) { throw new Error('Wrong password.'); }
+}
+const hasLockedSheet = () => !!(CFG.lockedSheet && String(CFG.lockedSheet).startsWith('v1.'));
+
+/** Ask the browser to keep this site's data even when the phone runs low on space. */
+let storagePersisted = null;
+async function persistStorage() {
+  try {
+    if (!navigator.storage || !navigator.storage.persist) return;
+    storagePersisted = (await navigator.storage.persisted()) || (await navigator.storage.persist());
+  } catch (e) { /* ignore */ }
+}
 
 /* ------------------------------------------------------------------ toast */
 let toastTimer;
@@ -314,11 +349,11 @@ function render() {
   document.body.classList.toggle('no-chrome', !state.sheetId || (!state.data && !state.loading));
 
   const d = state.data;
-  $('#title').textContent = state.sheetId && d ? (TAB_TITLES[r.name] || 'MTG League') : 'MTG League';
+  $('#title').textContent = state.sheetId && d ? (TAB_TITLES[r.name] || 'MTG Tracker') : 'MTG Tracker';
   $('#subtitle').textContent = d ? (scriptUrl() ? (d.title || '') : 'View only · set up saving in Settings') : '';
 
   let html;
-  if (!state.sheetId) html = viewOnboarding();
+  if (!state.sheetId) html = hasLockedSheet() && !state.manualEntry ? viewUnlock() : viewOnboarding();
   else if (!d && state.loading) html = '<div class="skeleton" style="height:70px"></div><div class="skeleton"></div><div class="skeleton" style="height:180px"></div><div class="skeleton" style="height:140px"></div>';
   else if (!d) html = viewLoadError();
   else html = (VIEWS[r.name] || viewHome)(r.arg);
@@ -455,8 +490,25 @@ function viewOnboarding() {
       <p class="err-text hidden" id="onboard-err">That doesn’t look like a Google Sheets link or ID.</p>
       <button class="btn primary block" type="submit">Continue</button>
     </form>
+    ${hasLockedSheet() ? '<div style="text-align:center;margin-top:14px"><button class="link-btn" data-act="password-entry">Use the league password instead</button></div>' : ''}
     <div class="divider"></div>
     <div class="callout">The sheet needs the tabs <b>Players</b>, <b>Decks</b> and <b>Matches</b> and must be shared as <b>“Anyone with the link”</b>. To add matches, the sheet owner connects the small Apps Script once (Settings → Write access).</div>
+  </div>`;
+}
+
+function viewUnlock() {
+  return `<div class="onboard">
+    <div class="logo">${COLORS.map((c) => pip(c, 'lg')).join('')}</div>
+    <h2>Welcome to MTG Tracker</h2>
+    <p class="lead">Enter the league password to open your league.</p>
+    <form data-form="unlock">
+      <label class="field"><span class="label">League password</span>
+        <input class="input" type="password" name="password" autocomplete="current-password" required autofocus>
+      </label>
+      <p class="err-text hidden" id="unlock-err"></p>
+      <button class="btn primary block" type="submit">Open league</button>
+    </form>
+    <div style="text-align:center;margin-top:18px"><button class="link-btn" data-act="manual-sheet">Enter a sheet link instead</button></div>
   </div>`;
 }
 
@@ -755,6 +807,7 @@ function busy(btn, on, label) {
 /* ------------------------------------------------------------------ settings */
 function openSettings() {
   const sheetUrl = state.sheetId ? `https://docs.google.com/spreadsheets/d/${state.sheetId}/edit` : '';
+  let lockResult = '';
   const s = openSheet({
     title: 'Settings',
     render: () => {
@@ -784,12 +837,24 @@ function openSettings() {
           <button class="btn ${scriptUrl() ? '' : 'primary'} block" type="submit">${scriptUrl() ? 'Test & update' : 'Connect'}</button>
         </form>
       </div>
-      <details class="adv">
+      <details class="adv"${lockResult ? ' open' : ''}>
         <summary>Advanced</summary>
-        <div style="height:6px"></div>
+        <div class="field" style="margin-top:10px"><span class="label">Lock sheet with password</span>
+          <p class="hint" style="margin:0 0 10px">Creates an encrypted version of the current sheet link for <b>config.js</b>. Players then only enter this password — never the link. Use a passphrase of several words.</p>
+          ${lockResult ? `
+            <textarea class="input" readonly rows="4" style="font-family:ui-monospace,monospace;font-size:12px" data-lock-out>lockedSheet: '${esc(lockResult)}',</textarea>
+            <div class="row" style="margin-top:8px"><button class="btn primary grow" data-act="copy-lock">Copy line</button><button class="btn" data-act="lock-again">Start over</button></div>
+            <p class="hint" style="margin:8px 0 0">On GitHub: open <b>config.js</b> → ✏️ edit → replace the <code>lockedSheet: ''</code> line with this one → <b>Commit changes</b>.</p>`
+          : `<form data-form="lock">
+            <input class="input" type="password" name="p1" placeholder="New league password" autocomplete="new-password" style="margin-bottom:8px">
+            <input class="input" type="password" name="p2" placeholder="Repeat password" autocomplete="new-password" style="margin-bottom:8px">
+            <button class="btn block" type="submit"${state.sheetId ? '' : ' disabled'}>Create locked link</button>
+          </form>`}
+        </div>
+        <div class="divider"></div>
         <button class="btn block danger" data-act="reset">Forget sheet & reset app</button>
       </details>
-      <p class="hint" style="margin-top:16px">Data ${state.loadedAt ? 'loaded ' + new Date(state.loadedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'not loaded'}</p>`;
+      <p class="hint" style="margin-top:16px">Data ${state.loadedAt ? 'loaded ' + new Date(state.loadedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'not loaded'}${storagePersisted === true ? ' · saved permanently on this device' : storagePersisted === false ? ' · the browser may clear saved data' : ''}</p>`;
     },
   });
   s.el.addEventListener('submit', (e) => {
@@ -798,6 +863,14 @@ function openSettings() {
     if (f.dataset.form === 'sheet') {
       if (!setSheet(f.sheet.value)) { $('[data-err]', s.el).classList.remove('hidden'); return; }
       s.close(); location.hash = '#/home'; load();
+    } else if (f.dataset.form === 'lock') {
+      const p1 = f.p1.value, p2 = f.p2.value;
+      if (p1.length < 8) { toast('Use at least 8 characters — a few words work best.', true); return; }
+      if (p1 !== p2) { toast('The passwords don’t match.', true); return; }
+      lockSheetId(state.sheetId, p1).then((blob) => unlockSheetId(blob, p1).then((check) => {
+        if (check !== state.sheetId) throw new Error('Check failed');
+        lockResult = blob; s.refresh();
+      })).catch((err) => toast('Couldn’t create the locked link: ' + err.message, true));
     } else if (f.dataset.form === 'script') {
       const url = f.url.value.trim();
       const btn = f.querySelector('button[type=submit]');
@@ -821,6 +894,13 @@ function openSettings() {
     if (t) { store.set('theme', t.dataset.themeSet); applyTheme(); s.refresh(); return; }
     const a = e.target.closest('[data-act]');
     if (!a) return;
+    if (a.dataset.act === 'copy-lock') {
+      const text = $('[data-lock-out]', s.el).value;
+      try { await navigator.clipboard.writeText(text); toast('Copied'); }
+      catch (err) { $('[data-lock-out]', s.el).select(); toast('Select the text and copy it manually.', true); }
+      return;
+    }
+    if (a.dataset.act === 'lock-again') { lockResult = ''; s.refresh(); return; }
     if (a.dataset.act === 'install') {
       if (!installPrompt) return;
       installPrompt.prompt();
@@ -1070,6 +1150,8 @@ document.addEventListener('click', async (e) => {
     else if (a === 'clear-table') { setPath('table.colors', []); setPath('table.tags', []); render(); }
     else if (a === 'clear-matches') { setPath('matches.deck', ''); setPath('matches.player', ''); render(); }
     else if (a === 'new-deck') openDeckEditor(null);
+    else if (a === 'manual-sheet') { state.manualEntry = true; render(); }
+    else if (a === 'password-entry') { state.manualEntry = false; render(); }
     else if (a === 'edit-deck') openDeckEditor(act.dataset.id);
     return;
   }
@@ -1089,9 +1171,19 @@ document.addEventListener('input', (e) => { if (e.target.type === 'search' || e.
 
 document.addEventListener('submit', (e) => {
   const f = e.target;
+  if (f.dataset.form === 'unlock') {
+    e.preventDefault();
+    const btn = f.querySelector('button[type=submit]'); const err = $('#unlock-err');
+    busy(btn, true, 'Unlocking…'); err.classList.add('hidden');
+    unlockSheetId(CFG.lockedSheet, f.password.value)
+      .then((id) => { if (!setSheet(id)) throw new Error('The unlocked value isn’t a sheet link.'); persistStorage(); load(); })
+      .catch((ex) => { busy(btn, false); err.textContent = ex.message; err.classList.remove('hidden'); f.password.select(); });
+    return;
+  }
   if (f.dataset.form !== 'onboard') return;
   e.preventDefault();
   if (!setSheet(f.sheet.value)) { $('#onboard-err').classList.remove('hidden'); return; }
+  persistStorage();
   load();
 });
 
@@ -1110,7 +1202,7 @@ const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.
 function installSection() {
   let body;
   if (isStandalone()) body = '<div class="account"><span class="dot on"></span><div class="grow small">Installed — you’re using the app version.</div></div>';
-  else if (installPrompt) body = '<button class="btn primary block" data-act="install">Install app</button><p class="hint" style="margin:8px 0 0">Adds MTG League to your home screen and app drawer, full screen without the browser bar.</p>';
+  else if (installPrompt) body = '<button class="btn primary block" data-act="install">Install app</button><p class="hint" style="margin:8px 0 0">Adds MTG Tracker to your home screen and app drawer, full screen without the browser bar.</p>';
   else if (isIOS()) body = '<p class="small muted" style="margin:0">In Safari, tap <b>Share</b> (square with arrow) → <b>Add to Home Screen</b>.</p>';
   else body = '<p class="small muted" style="margin:0">In Chrome, tap the <b>⋮</b> menu → <b>Install app</b> (or <b>Add to Home screen</b>).</p>';
   return `<div class="field"><span class="label">Install as app</span>${body}</div><div class="divider"></div>`;
@@ -1128,5 +1220,5 @@ probeIcons();
     try { state.data = buildModel(cache.raw); state.config = state.data.config; state.loadedAt = cache.at; } catch (e) { /* ignore bad cache */ }
   }
   render();
-  if (state.sheetId) load();
+  if (state.sheetId) { load(); persistStorage(); }
 })();

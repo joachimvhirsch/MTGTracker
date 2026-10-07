@@ -1,7 +1,7 @@
-/* MTG League service worker.
+/* MTG Tracker service worker.
  * Network first for the app's own files (so updates on GitHub show up right away),
  * falling back to the last cached copy when offline. Google requests are never cached. */
-const CACHE = 'mtg-league-v1';
+const CACHE = 'mtg-tracker-v2';
 const CORE = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
