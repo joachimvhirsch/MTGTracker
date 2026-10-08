@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261008a';
+const APP_VERSION = '20261008b';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -307,7 +307,7 @@ function applyTheme() {
 async function load(opts = {}) {
   if (!state.sheetId) { render(); return; }
   state.loading = true; state.error = null;
-  $('#btn-refresh').classList.add('spinning');
+  document.body.classList.add('loading');
   if (!state.data) render();
   try {
     let raw;
@@ -324,7 +324,7 @@ async function load(opts = {}) {
     if (state.data) toast(e.message, true);
   } finally {
     state.loading = false;
-    $('#btn-refresh').classList.remove('spinning');
+    document.body.classList.remove('loading');
     render();
   }
 }
@@ -355,11 +355,9 @@ function render() {
 
   const tabName = r.name === 'deck' ? 'decks' : r.name;
   $$('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tabName));
-  $('#btn-back').hidden = r.name !== 'deck';
   document.body.classList.toggle('no-chrome', !state.sheetId || (!state.data && !state.loading));
 
   const d = state.data;
-  $('#title').textContent = state.sheetId && d ? (TAB_TITLES[r.name] || 'MTG Tracker') : 'MTG Tracker';
 
   let html;
   if (!state.sheetId) html = hasLockedSheet() && !state.manualEntry ? viewUnlock() : viewOnboarding();
@@ -725,7 +723,6 @@ function viewDeck(id) {
   const d = state.data;
   const deck = d.deckById.get(id);
   if (!deck || deck.ghost) return `<div class="empty"><h2>Deck not found</h2><p><a href="#/decks">Back to decks</a></p></div>`;
-  $('#title').textContent = deck.name;
 
   const ss = d.matches.flatMap(sides).filter((s) => s.deck.id === deck.id);
   const rec = ss.reduce(addRec, emptyRec());
@@ -747,7 +744,8 @@ function viewDeck(id) {
   const playKnown = ss.filter((s) => s.onPlay != null);
   const wrRow = (g, extra = {}) => ({ label: g.label, value: wr(g.rec), valueHtml: `${pct(wr(g.rec))}<small>${recStr(g.rec)}</small>`, title: `${g.label}: ${recStr(g.rec)}`, ...extra });
 
-  return `<div class="deck-hero">
+  return `<button class="link-btn back-link" data-act="back">‹ Back</button>
+    <div class="deck-hero">
       <div class="row" style="justify-content:space-between">
         ${pips(deck.colors, true)}
         <button class="btn sm" data-act="edit-deck" data-id="${esc(deck.id)}">${ICON.edit}Edit</button>
@@ -865,7 +863,9 @@ function openSettings() {
         <div class="divider"></div>
         <button class="btn block danger" data-act="reset">Forget sheet & reset app</button>
       </details>
-      <p class="hint" style="margin-top:16px">Data ${state.loadedAt ? 'loaded ' + new Date(state.loadedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'not loaded'} · version ${APP_VERSION}${storagePersisted === true ? ' · saved permanently on this device' : storagePersisted === false ? ' · the browser may clear saved data' : ''}</p>`;
+      <div class="divider"></div>
+      <button class="btn block" data-act="reload-data-s">Reload data now</button>
+      <p class="hint" style="margin-top:12px">Data ${state.loadedAt ? 'loaded ' + new Date(state.loadedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'not loaded'} · version ${APP_VERSION}${storagePersisted === true ? ' · saved permanently on this device' : storagePersisted === false ? ' · the browser may clear saved data' : ''}</p>`;
     },
   });
   s.el.addEventListener('submit', (e) => {
@@ -905,6 +905,7 @@ function openSettings() {
     if (t) { store.set('theme', t.dataset.themeSet); applyTheme(); s.refresh(); return; }
     const a = e.target.closest('[data-act]');
     if (!a) return;
+    if (a.dataset.act === 'reload-data-s') { s.close(); load({ toast: true }); return; }
     if (a.dataset.act === 'copy-lock') {
       const text = $('[data-lock-out]', s.el).value;
       try { await navigator.clipboard.writeText(text); toast('Copied'); }
@@ -1173,6 +1174,8 @@ document.addEventListener('click', async (e) => {
     else if (a === 'clear-table') { setPath('table.colors', []); setPath('table.tags', []); render(); }
     else if (a === 'clear-matches') { setPath('matches.deck', ''); setPath('matches.player', ''); render(); }
     else if (a === 'new-deck') openDeckEditor(null);
+    else if (a === 'back') { if (history.length > 1) history.back(); else location.hash = '#/decks'; }
+    else if (a === 'reload-data') load({ toast: true });
     else if (a === 'manual-sheet') { state.manualEntry = true; render(); }
     else if (a === 'password-entry') { state.manualEntry = false; render(); }
     else if (a === 'edit-deck') openDeckEditor(act.dataset.id);
@@ -1211,9 +1214,11 @@ document.addEventListener('submit', (e) => {
 });
 
 $('#btn-settings').addEventListener('click', openSettings);
-$('#btn-refresh').addEventListener('click', () => load({ toast: true }));
 $('#btn-add').addEventListener('click', openMatchForm);
-$('#btn-back').addEventListener('click', () => { if (history.length > 1) history.back(); else location.hash = '#/decks'; });
+// Refresh data automatically when the app comes back to the foreground (no refresh button needed).
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.data && !state.loading && Date.now() - state.loadedAt > 60000) load();
+});
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 
 /* ------------------------------------------------------------------ install as app */

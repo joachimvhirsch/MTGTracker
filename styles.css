@@ -115,7 +115,7 @@ main {
   border-bottom: 2.5px solid transparent;
 }
 .tabbar a svg { width: 18px; height: 18px; }
-@media (max-width: 360px) { .tabbar a svg { display: none; } }
+
 .tabbar a.active { border-bottom-color: var(--accent); }
 .tabbar a.active { color: var(--accent); }
 .fab {
@@ -413,3 +413,17 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--ink-2); pa
 .num-box { width: 44px; height: 38px; flex: none; text-align: center; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); -moz-appearance: textfield; padding: 0; }
 .num-box:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .num-box::-webkit-outer-spin-button, .num-box::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* ---------- Single navigation row: tabs + settings ---------- */
+.navrow { display: flex; align-items: center; max-width: 720px; margin: 0 auto; padding: env(safe-area-inset-top) 4px 0 0; }
+.navrow .tabbar { flex: 1; min-width: 0; padding: 0 0 0 4px; margin: 0; }
+.navrow .tabbar a { height: 52px; }
+.navrow #btn-settings { flex: none; }
+@media (max-width: 420px) { .navrow .tabbar a { flex-direction: column; gap: 2px; font-size: 11.5px; } .navrow .tabbar a svg { display: block; width: 18px; height: 18px; } }
+body.no-chrome .navrow .tabbar { visibility: hidden; }
+#loadbar { height: 2px; margin-top: -2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 40% 100%; background-repeat: no-repeat; opacity: 0; }
+body.loading #loadbar { opacity: 1; animation: loadbar 1s linear infinite; }
+@keyframes loadbar { from { background-position: -40% 0; } to { background-position: 140% 0; } }
+.back-link { display: inline-block; margin: -2px 0 6px; font-size: 14.5px; }
+#toast { top: calc(env(safe-area-inset-top) + 64px); }
+.navrow #btn-settings { margin-left: auto; }
