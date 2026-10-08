@@ -3,6 +3,16 @@
  */
 'use strict';
 
+const APP_VERSION = '20261008a';
+
+// If anything goes wrong while drawing a screen, show a way out instead of a blank page.
+window.addEventListener('error', () => {
+  const v = document.getElementById('view');
+  if (v && !v.children.length) {
+    v.innerHTML = '<div class="empty"><h2>Something went wrong</h2><p>The app may have loaded an outdated file. Reload to fix it.</p><button class="btn primary" onclick="location.reload()">Reload</button></div>';
+  }
+});
+
 const CFG = window.APP_CONFIG || {};
 const TABS = { players: 'Players', decks: 'Decks', matches: 'Matches', config: 'Config' };
 const COLORS = ['W', 'U', 'B', 'R', 'G'];
@@ -855,7 +865,7 @@ function openSettings() {
         <div class="divider"></div>
         <button class="btn block danger" data-act="reset">Forget sheet & reset app</button>
       </details>
-      <p class="hint" style="margin-top:16px">Data ${state.loadedAt ? 'loaded ' + new Date(state.loadedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'not loaded'}${storagePersisted === true ? ' · saved permanently on this device' : storagePersisted === false ? ' · the browser may clear saved data' : ''}</p>`;
+      <p class="hint" style="margin-top:16px">Data ${state.loadedAt ? 'loaded ' + new Date(state.loadedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'not loaded'} · version ${APP_VERSION}${storagePersisted === true ? ' · saved permanently on this device' : storagePersisted === false ? ' · the browser may clear saved data' : ''}</p>`;
     },
   });
   s.el.addEventListener('submit', (e) => {
