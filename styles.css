@@ -429,3 +429,6 @@ body.loading #loadbar { opacity: 1; animation: loadbar 1s linear infinite; }
 .navrow #btn-settings { margin-left: auto; }
 .result-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .result-grid button { min-width: 0; }
 .result-grid button span { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.2; text-align: center; overflow-wrap: anywhere; }
+.match.tap { cursor: pointer; }
+.match.tap:active { background: var(--surface-2); }
+.btn.danger.confirm { background: var(--loss); color: #fff; border-color: transparent; }

@@ -123,6 +123,12 @@ window.I18N = {
     on_play_label: 'On the play', unknown: 'Unknown', notes: 'Notes', notes_ph: 'e.g. mulligan to 5 in game 3',
     e_date: 'Pick a date.', e_players: 'Pick both players.', e_diff: 'Pick two different players.',
     e_decks: 'Pick a deck for each player.', e_games: 'Enter the games won by each player (0 if none).', e_one: 'Enter at least one game.',
+    edit_match: 'Edit match', delete: 'Delete', confirm_delete: 'Tap again to delete', deleting: 'Deleting…',
+    match_updated: 'Match updated', match_deleted: 'Match deleted', tap_to_edit: 'Tap a match to edit',
+    inactive_suffix: ' (inactive)', show_all_decks_edit: 'Show every player’s decks',
+    no_decks_for: 'No decks for {name} yet — add one.',
+    err_no_match_id: 'This match has no id in the sheet, so it can’t be edited here. Give it one in the Matches tab.',
+    err_script_old: 'The Apps Script in the sheet is outdated. Update Code.gs (Deploy → Manage deployments → Edit → New version).',
     match_saved: 'Match saved',
 
     // deck editor
@@ -256,6 +262,12 @@ window.I18N = {
     on_play_label: 'Auf dem Play', unknown: 'Unbekannt', notes: 'Notizen', notes_ph: 'z. B. Mulligan auf 5 in Spiel 3',
     e_date: 'Wähle ein Datum.', e_players: 'Wähle beide Spieler.', e_diff: 'Wähle zwei verschiedene Spieler.',
     e_decks: 'Wähle für jeden Spieler ein Deck.', e_games: 'Gib die gewonnenen Spiele je Spieler ein (0, wenn keines).', e_one: 'Gib mindestens ein Spiel ein.',
+    edit_match: 'Match bearbeiten', delete: 'Löschen', confirm_delete: 'Zum Löschen erneut tippen', deleting: 'Löschen…',
+    match_updated: 'Match aktualisiert', match_deleted: 'Match gelöscht', tap_to_edit: 'Zum Bearbeiten auf ein Match tippen',
+    inactive_suffix: ' (inaktiv)', show_all_decks_edit: 'Decks aller Spieler anzeigen',
+    no_decks_for: 'Noch keine Decks für {name} – füge eines hinzu.',
+    err_no_match_id: 'Dieses Match hat im Sheet keine ID und kann hier nicht bearbeitet werden. Trage im Tabellenblatt „Matches“ eine ID ein.',
+    err_script_old: 'Das Apps Script im Sheet ist veraltet. Aktualisiere Code.gs (Bereitstellen → Bereitstellungen verwalten → Bearbeiten → Neue Version).',
     match_saved: 'Match gespeichert',
 
     // Deck-Editor

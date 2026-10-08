@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261008c';
+const APP_VERSION = '20261008d';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -454,7 +454,7 @@ function hbars(rows, { max, axis, big, empty } = {}) {
     </div>`).join('')}</div>`;
 }
 
-function matchRow(m, focusDeckId) {
+function matchRow(m, focusDeckId, editable) {
   const aw = m.ga > m.gb, bw = m.gb > m.ga;
   const sideHtml = (p, deck, won, lost, cls, onPlay) => `
     <div class="side ${cls} ${won ? 'won' : lost ? 'lost' : ''}">
@@ -463,7 +463,7 @@ function matchRow(m, focusDeckId) {
       ${pips(deck.colors)}
     </div>`;
   const s = sides(m);
-  return `<div class="match" ${focusDeckId ? '' : ''}>
+  return `<div class="match${editable ? ' tap' : ''}" ${editable ? `data-edit-match="${esc(m.id)}" role="button" tabindex="0"` : ''}>
     ${sideHtml(m.pa, m.da, aw, bw, 'a', s[0].onPlay === true)}
     <div class="score-wrap"><div class="score"><span class="${aw ? 'w' : bw ? 'l' : ''}">${m.ga}</span><span class="sep">:</span><span class="${bw ? 'w' : aw ? 'l' : ''}">${m.gb}</span></div>${m.gd ? `<div class="draws">+${t('draws_n', m.gd)}</div>` : ''}</div>
     ${sideHtml(m.pb, m.db, bw, aw, 'b', s[1].onPlay === true)}
@@ -481,7 +481,7 @@ function matchList(matches, opts = {}) {
       html += `<div class="date-head">${m.date ? fmtDate(m.date, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : esc(m.dateRaw || t('no_date'))}</div><div class="list">`;
       open = true; lastKey = key;
     }
-    html += matchRow(m, opts.focusDeckId);
+    html += matchRow(m, opts.focusDeckId, opts.editable);
   }
   return html + (open ? '</div>' : '');
 }
@@ -706,8 +706,8 @@ function viewMatches() {
       </select>
       <div class="row"><div class="grow">${playerSelect('matches.player', ui.player)}</div>${ui.deck || ui.player ? `<button class="link-btn" data-act="clear-matches">${t('clear')}</button>` : ''}</div>
     </div>
-    <div class="toolbar"><span class="count">${t('matches_n', ms.length)}${summary}</span>${ui.deck ? `<a class="link-btn" href="#/deck/${encodeURIComponent(ui.deck)}">${t('deck_details')}</a>` : ''}</div>
-    ${matchList(ms, { emptyText: d.matches.length ? t('nothing_matches') : t('first_match') })}`;
+    <div class="toolbar"><span class="count">${t('matches_n', ms.length)}${summary}</span>${ui.deck ? `<a class="link-btn" href="#/deck/${encodeURIComponent(ui.deck)}">${t('deck_details')}</a>` : `<span class="count">${t('tap_to_edit')}</span>`}</div>
+    ${matchList(ms, { editable: true, emptyText: d.matches.length ? t('nothing_matches') : t('first_match') })}`;
 }
 
 /* ------------------------------------------------------------------ view: decks */
@@ -969,28 +969,49 @@ function nextId(list, fallbackPrefix) {
 }
 
 /* ------------------------------------------------------------------ add match */
-function openMatchForm() {
+function openMatchForm(edit) {
   const d = state.data;
   if (!d) { toast(t('load_first'), true); return; }
+  if (edit && String(edit.id).startsWith('row')) { toast(t('err_no_match_id'), true); return; }
   const ps = realPlayers();
   const last = d.matches[0];
-  const f = {
+  const f = edit ? (() => {
+    const sd = sides(edit);
+    const quick = [[2, 0], [2, 1], [1, 2], [0, 2]].some(([a, b]) => a === edit.ga && b === edit.gb) && !edit.gd;
+    return {
+      date: edit.date ? isoDate(edit.date) : isoDate(new Date()),
+      pa: edit.pa ? edit.pa.id : '', pb: edit.pb ? edit.pb.id : '',
+      da: edit.da.id === '?' ? '' : edit.da.id, db: edit.db.id === '?' ? '' : edit.db.id,
+      ga: edit.ga, gb: edit.gb, gd: edit.gd || 0, custom: !quick,
+      onPlay: sd[0].onPlay === true ? 'a' : sd[1].onPlay === true ? 'b' : '',
+      notes: edit.notes || '', allDecks: false, err: '', confirmDelete: false,
+    };
+  })() : {
     date: isoDate(new Date()),
     pa: (last && last.pa && !last.pa.ghost && last.pa.id) || (ps[0] && ps[0].id) || '',
     pb: (last && last.pb && !last.pb.ghost && last.pb.id) || (ps[1] && ps[1].id) || '',
     da: '', db: '', ga: null, gb: null, gd: 0, onPlay: '', notes: '', allDecks: false, err: '',
   };
-  const decksFor = (pid) => state.data.decks.filter((x) => x.active && (f.allDecks || x.playerIds.includes(pid))).sort((a, b) => a.name.localeCompare(b.name));
+  // Editing: offer inactive decks too (and keep the match's current deck even if it isn't in the Decks tab).
+  const decksFor = (pid, dkey) => {
+    const list = state.data.decks.filter((x) => (edit || x.active) && (f.allDecks || x.playerIds.includes(pid)));
+    if (edit) {
+      const cur = state.data.deckById.get(f[dkey]);
+      if (cur && !list.includes(cur)) list.push(cur);
+    }
+    return list.sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name));
+  };
+  const players = edit ? [...ps, ...[edit.pa, edit.pb].filter((p) => p && p.ghost)] : ps;
   const pName = (id) => { const p = state.data.playerByRef.get(norm(id)); return p ? p.name : '—'; };
   const sideBox = (key, dkey, label) => {
-    const list = decksFor(f[key]);
+    const list = decksFor(f[key], dkey);
     if (f[dkey] && !list.some((x) => x.id === f[dkey])) f[dkey] = '';
     return `<div class="side-box">
       <label class="field"><span class="label">${label}</span>
-        <select class="select" data-f="${key}">${ps.map((p) => `<option value="${esc(p.id)}"${p.id === f[key] ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+        <select class="select" data-f="${key}">${players.map((p) => `<option value="${esc(p.id)}"${p.id === f[key] ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
       <label class="field"><span class="label"><span>${t('deck')}</span><button type="button" class="link-btn" data-new-deck="${key}">${t('plus_new_deck')}</button></span>
-        <select class="select" data-f="${dkey}"><option value="">${t('choose_deck')}</option>${list.map((x) => `<option value="${esc(x.id)}"${x.id === f[dkey] ? ' selected' : ''}>${esc(x.name)} · ${x.colors.join('') || 'C'}</option>`).join('')}</select></label>
-      ${!list.length ? `<p class="hint">${t('no_active_decks_for', { name: esc(pName(f[key])) })}</p>` : ''}
+        <select class="select" data-f="${dkey}"><option value="">${t('choose_deck')}</option>${list.map((x) => `<option value="${esc(x.id)}"${x.id === f[dkey] ? ' selected' : ''}>${esc(x.name)} · ${x.colors.join('') || 'C'}${x.active ? '' : t('inactive_suffix')}</option>`).join('')}</select></label>
+      ${!list.length ? `<p class="hint">${t(edit ? 'no_decks_for' : 'no_active_decks_for', { name: esc(pName(f[key])) })}</p>` : ''}
     </div>`;
   };
   const results = [[2, 0], [2, 1], [1, 2], [0, 2]];
@@ -999,8 +1020,10 @@ function openMatchForm() {
   const numBox = (key, label) => `<input class="num-box" type="number" inputmode="numeric" min="0" max="9" data-f="${key}" value="${f[key] ?? ''}" placeholder="0" aria-label="${esc(label)}">`;
   const clampGames = (v) => (v === '' || v == null || isNaN(v) ? null : Math.max(0, Math.min(9, Math.round(Number(v)))));
   const s = openSheet({
-    title: t('new_match'),
-    foot: `<button class="btn" data-close>${t('cancel')}</button><button class="btn primary" data-save>${t('save_match')}</button>`,
+    title: edit ? t('edit_match') : t('new_match'),
+    foot: edit
+      ? `<button class="btn danger" data-delete>${t('delete')}</button><button class="btn primary" data-save>${t('save_changes')}</button>`
+      : `<button class="btn" data-close>${t('cancel')}</button><button class="btn primary" data-save>${t('save_match')}</button>`,
     render: () => `
       <div class="field"><span class="label">${t('date')}</span>
         <div class="date-field">
@@ -1012,7 +1035,7 @@ function openMatchForm() {
       ${sideBox('pa', 'da', t('player1'))}
       <div class="vs">${t('vs')}</div>
       ${sideBox('pb', 'db', t('player2'))}
-      <label class="switch" style="margin-bottom:14px"><span class="small">${t('show_all_decks')}</span><input type="checkbox" data-f="allDecks" ${f.allDecks ? 'checked' : ''}></label>
+      <label class="switch" style="margin-bottom:14px"><span class="small">${t(edit ? 'show_all_decks_edit' : 'show_all_decks')}</span><input type="checkbox" data-f="allDecks" ${f.allDecks ? 'checked' : ''}></label>
       <div class="field"><span class="label">${t('result')}</span>
         <div class="result-grid">${results.map(([a, b]) => `<button type="button" data-result="${a}-${b}" class="${quickOn(a, b) ? 'on' : ''}"><b>${a}–${b}</b><span>${t('wins', { name: esc(pName(a > b ? f.pa : f.pb)) })}</span></button>`).join('')}</div>
         ${f.custom ? `
@@ -1039,6 +1062,10 @@ function openMatchForm() {
   });
   s.el.addEventListener('input', (e) => { if (e.target.dataset.f === 'notes') f.notes = e.target.value; });
   s.el.addEventListener('click', async (e) => {
+    if (f.confirmDelete && !e.target.closest('[data-delete]')) {
+      f.confirmDelete = false;
+      const db = s.el.querySelector('[data-delete]'); if (db) { db.textContent = t('delete'); db.classList.remove('confirm'); }
+    }
     const r = e.target.closest('[data-result]');
     if (r) { [f.ga, f.gb] = r.dataset.result.split('-').map(Number); f.gd = 0; f.custom = false; s.refresh(); return; }
     const cu = e.target.closest('[data-custom]');
@@ -1059,6 +1086,19 @@ function openMatchForm() {
       openDeckEditor(null, { playerId: f[side], onSaved: (deck) => { f[side === 'pa' ? 'da' : 'db'] = deck.id; s.refresh(); } });
       return;
     }
+    const del = e.target.closest('[data-delete]');
+    if (del && edit) {
+      if (!f.confirmDelete) { f.confirmDelete = true; del.textContent = t('confirm_delete'); del.classList.add('confirm'); return; }
+      busy(del, true, t('deleting'));
+      try {
+        await callScript('deleteMatch', { id: edit.id });
+        s.close(); toast(t('match_deleted')); await load();
+      } catch (err) {
+        busy(del, false); f.confirmDelete = false; del.textContent = t('delete'); del.classList.remove('confirm');
+        f.err = scriptError(err); s.refresh(); s.body.scrollTop = s.body.scrollHeight;
+      }
+      return;
+    }
     const save = e.target.closest('[data-save]');
     if (!save) return;
     f.err = '';
@@ -1074,22 +1114,28 @@ function openMatchForm() {
       const D = state.data;
       const ga = f.ga, gb = f.gb, gd = f.gd || 0;
       const deck = (id) => D.deckById.get(id);
-      await callScript('addMatch', { data: {
+      const data = {
         date: f.date,
         playerA: pName(f.pa), deckA: deck(f.da).name,
         playerB: pName(f.pb), deckB: deck(f.db).name,
         onPlay: f.onPlay === 'a' ? pName(f.pa) : f.onPlay === 'b' ? pName(f.pb) : '',
         gamesA: ga, gamesB: gb, notes: f.notes.trim(),
-        ...(gd ? { draws: gd } : {}),
-      } });
+      };
+      if (edit) { if (gd || edit.gd) data.draws = gd || ''; await callScript('updateMatch', { id: edit.id, data }); }
+      else { if (gd) data.draws = gd; await callScript('addMatch', { data }); }
       s.close();
-      toast(t('match_saved'));
+      toast(edit ? t('match_updated') : t('match_saved'));
       await load();
     } catch (err) {
       busy(save, false);
-      f.err = err.message; s.refresh(); s.body.scrollTop = s.body.scrollHeight;
+      f.err = scriptError(err); s.refresh(); s.body.scrollTop = s.body.scrollHeight;
     }
   });
+}
+
+/** Friendlier message when the sheet still runs an older Code.gs without the newer actions. */
+function scriptError(err) {
+  return /Unknown action/i.test(err.message || '') ? t('err_script_old') : err.message;
 }
 
 /* ------------------------------------------------------------------ deck editor */
@@ -1214,6 +1260,12 @@ document.addEventListener('click', async (e) => {
     else if (a === 'edit-deck') openDeckEditor(act.dataset.id);
     return;
   }
+  const em = e.target.closest('[data-edit-match]');
+  if (em && !e.target.closest('a')) {
+    const m = state.data && state.data.matches.find((x) => String(x.id) === em.dataset.editMatch);
+    if (m) openMatchForm(m);
+    return;
+  }
   const href = e.target.closest('[data-href]');
   if (href && !e.target.closest('a')) { location.hash = href.dataset.href; }
 });
@@ -1247,7 +1299,7 @@ document.addEventListener('submit', (e) => {
 });
 
 $('#btn-settings').addEventListener('click', openSettings);
-$('#btn-add').addEventListener('click', openMatchForm);
+$('#btn-add').addEventListener('click', () => openMatchForm());
 // Refresh data automatically when the app comes back to the foreground (no refresh button needed).
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state.data && !state.loading && Date.now() - state.loadedAt > 60000) load();
