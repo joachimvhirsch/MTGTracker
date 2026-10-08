@@ -334,7 +334,7 @@ function route() {
 }
 
 const VIEWS = { home: viewHome, table: viewTable, matches: viewMatches, decks: viewDecks, deck: viewDeck };
-const TAB_TITLES = { home: 'Overview', table: 'League table', matches: 'Matches', decks: 'Decks', deck: 'Deck' };
+const TAB_TITLES = { home: 'Home', table: 'Table', matches: 'Matches', decks: 'Decks', deck: 'Deck' };
 
 function render() {
   const r = route();
@@ -350,7 +350,6 @@ function render() {
 
   const d = state.data;
   $('#title').textContent = state.sheetId && d ? (TAB_TITLES[r.name] || 'MTG Tracker') : 'MTG Tracker';
-  $('#subtitle').textContent = d ? (scriptUrl() ? (d.title || '') : 'View only · set up saving in Settings') : '';
 
   let html;
   if (!state.sheetId) html = hasLockedSheet() && !state.manualEntry ? viewUnlock() : viewOnboarding();
@@ -951,32 +950,35 @@ function openMatchForm() {
     </div>`;
   };
   const results = [[2, 0], [2, 1], [1, 2], [0, 2]];
-  const stepper = (label, key) => `<div class="stepper">
-      <span class="st-label">${esc(label)}</span>
-      <div class="st-ctrl">
-        <button type="button" data-step="${key}" data-d="-1" aria-label="${esc(label)} minus one">−</button>
-        <input type="number" inputmode="numeric" min="0" max="9" data-f="${key}" value="${f[key] ?? ''}" placeholder="0" aria-label="${esc(label)}">
-        <button type="button" data-step="${key}" data-d="1" aria-label="${esc(label)} plus one">+</button>
-      </div>
-    </div>`;
+  const deDate = (iso) => { const [y, m, d] = String(iso).split('-'); return d && m && y ? `${d}.${m}.${y}` : '—'; };
+  const quickOn = (a, b) => !f.custom && f.ga === a && f.gb === b && !f.gd;
+  const numBox = (key, label) => `<input class="num-box" type="number" inputmode="numeric" min="0" max="9" data-f="${key}" value="${f[key] ?? ''}" placeholder="0" aria-label="${esc(label)}">`;
   const clampGames = (v) => (v === '' || v == null || isNaN(v) ? null : Math.max(0, Math.min(9, Math.round(Number(v)))));
   const s = openSheet({
     title: 'New match',
     foot: '<button class="btn" data-close>Cancel</button><button class="btn primary" data-save>Save match</button>',
     render: () => `
-      <label class="field"><span class="label">Date</span><input class="input" type="date" data-f="date" value="${f.date}" max="${isoDate(new Date())}"></label>
+      <div class="field"><span class="label">Date</span>
+        <div class="date-field">
+          <span class="input date-display">${deDate(f.date)}</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+          <input type="date" data-f="date" value="${f.date}" max="${isoDate(new Date())}" aria-label="Date">
+        </div>
+      </div>
       ${sideBox('pa', 'da', 'Player 1')}
       <div class="vs">VS</div>
       ${sideBox('pb', 'db', 'Player 2')}
       <label class="switch" style="margin-bottom:14px"><span class="small">Show every player’s active decks</span><input type="checkbox" data-f="allDecks" ${f.allDecks ? 'checked' : ''}></label>
-      <div class="field"><span class="label">Result <span class="faint" style="font-weight:500">games won</span></span>
-        <div class="score-input">
-          ${stepper(pName(f.pa), 'ga')}
-          ${stepper(pName(f.pb), 'gb')}
-          ${stepper('Draws', 'gd')}
-        </div>
-        <div class="quick-picks"><span class="faint small">Quick pick</span>${results.map(([a, b]) => `<button type="button" class="chip${f.ga === a && f.gb === b && !f.gd ? ' on' : ''}" data-result="${a}-${b}">${a}–${b}</button>`).join('')}</div>
-        ${f.ga != null && f.gb != null && f.ga + f.gb + (f.gd || 0) > 0 ? `<p class="hint" style="margin:8px 0 0">${f.ga === f.gb ? 'Match counts as a draw' : esc(pName(f.ga > f.gb ? f.pa : f.pb)) + ' wins the match'}</p>` : ''}
+      <div class="field"><span class="label">Result</span>
+        <div class="result-grid">${results.map(([a, b]) => `<button type="button" data-result="${a}-${b}" class="${quickOn(a, b) ? 'on' : ''}"><b>${a}–${b}</b><span>${esc(pName(a > b ? f.pa : f.pb))} wins</span></button>`).join('')}</div>
+        ${f.custom ? `
+        <div class="custom-result">
+          <div class="cr-row">
+            <span class="cr-name">${esc(pName(f.pa))}</span>${numBox('ga', pName(f.pa) + ' games won')}<span class="cr-sep">–</span>${numBox('gb', pName(f.pb) + ' games won')}<span class="cr-name right">${esc(pName(f.pb))}</span>
+          </div>
+          <div class="cr-row draws"><span class="cr-name">Drawn games</span>${numBox('gd', 'Drawn games')}<button type="button" class="link-btn" data-custom="off">Cancel</button></div>
+        </div>` : `<button type="button" class="link-btn other-result" data-custom="on">+ Other result (e.g. 1–0, 1–1, draws)</button>`}
+        ${f.ga != null && f.gb != null && f.ga + f.gb + (f.gd || 0) > 0 ? `<p class="hint" style="margin:8px 0 0">${f.ga === f.gb ? 'Match counts as a draw' : esc(pName(f.ga > f.gb ? f.pa : f.pb)) + ' wins the match'}${f.gd ? ` · ${plural(f.gd, 'drawn game')}` : ''}</p>` : ''}
       </div>
       <div class="field"><span class="label">On the play <span class="faint" style="font-weight:500">optional</span></span>
         <div class="segmented">${[['', 'Unknown'], ['a', pName(f.pa)], ['b', pName(f.pb)]].map(([v, l]) => `<button type="button" data-onplay="${v}" class="${f.onPlay === v ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
@@ -987,13 +989,22 @@ function openMatchForm() {
   s.el.addEventListener('change', (e) => {
     const k = e.target.dataset.f; if (!k) return;
     if (k === 'ga' || k === 'gb' || k === 'gd') { f[k] = clampGames(e.target.value); if (k === 'gd' && f.gd == null) f.gd = 0; s.refresh(); return; }
+    if (k === 'date') { if (e.target.value) f.date = e.target.value; s.refresh(); return; }
     f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     if (k === 'pa' || k === 'pb' || k === 'allDecks') s.refresh();
   });
   s.el.addEventListener('input', (e) => { if (e.target.dataset.f === 'notes') f.notes = e.target.value; });
   s.el.addEventListener('click', async (e) => {
     const r = e.target.closest('[data-result]');
-    if (r) { [f.ga, f.gb] = r.dataset.result.split('-').map(Number); f.gd = 0; s.refresh(); return; }
+    if (r) { [f.ga, f.gb] = r.dataset.result.split('-').map(Number); f.gd = 0; f.custom = false; s.refresh(); return; }
+    const cu = e.target.closest('[data-custom]');
+    if (cu) {
+      if (cu.dataset.custom === 'on') { f.custom = true; if (f.ga == null) f.ga = 1; if (f.gb == null) f.gb = 0; }
+      else { f.custom = false; f.ga = null; f.gb = null; f.gd = 0; }
+      s.refresh(); return;
+    }
+    const di = e.target.closest('.date-field input');
+    if (di && di.showPicker && window.matchMedia('(pointer: fine)').matches) { try { di.showPicker(); } catch (x) { /* ignore */ } return; }
     const st = e.target.closest('[data-step]');
     if (st) { const k = st.dataset.step; f[k] = clampGames((f[k] || 0) + Number(st.dataset.d)); if (k !== 'gd' && f[k] === 0 && Number(st.dataset.d) < 0) f[k] = 0; s.refresh(); return; }
     const op = e.target.closest('[data-onplay]');

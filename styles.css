@@ -392,3 +392,24 @@ details.adv summary { cursor: pointer; font-weight: 600; color: var(--ink-2); pa
 .league th button { display: inline-flex; align-items: center; gap: 3px; padding: 6px 0; }
 .league th .sort-ind { font-size: 11px; opacity: .45; }
 .league th button.on .sort-ind { opacity: 1; }
+
+/* Date field showing DD.MM.YYYY over the native picker */
+.date-field { position: relative; }
+.date-field .date-display { display: flex; align-items: center; font-variant-numeric: tabular-nums; }
+.date-field svg { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; color: var(--ink-3); pointer-events: none; }
+.date-field input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; margin: 0; }
+.date-field:focus-within .date-display { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* Result: quick buttons + compact custom entry */
+.result-grid button { padding: 14px 4px; }
+.result-grid button b { font-size: 20px; }
+.other-result { margin-top: 10px; font-size: 13.5px; }
+.custom-result { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); display: grid; gap: 8px; }
+.cr-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cr-row.draws { border-top: 1px solid var(--line); padding-top: 8px; }
+.cr-name { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cr-name.right { text-align: right; }
+.cr-sep { color: var(--ink-3); font-weight: 700; }
+.num-box { width: 44px; height: 38px; flex: none; text-align: center; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); -moz-appearance: textfield; padding: 0; }
+.num-box:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.num-box::-webkit-outer-spin-button, .num-box::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
