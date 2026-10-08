@@ -427,3 +427,5 @@ body.loading #loadbar { opacity: 1; animation: loadbar 1s linear infinite; }
 .back-link { display: inline-block; margin: -2px 0 6px; font-size: 14.5px; }
 #toast { top: calc(env(safe-area-inset-top) + 64px); }
 .navrow #btn-settings { margin-left: auto; }
+.result-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .result-grid button { min-width: 0; }
+.result-grid button span { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.2; text-align: center; overflow-wrap: anywhere; }
