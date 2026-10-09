@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261008d';
+const APP_VERSION = '20261009a';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -845,19 +845,12 @@ function busy(btn, on, label) {
 function openSettings() {
   const sheetUrl = state.sheetId ? `https://docs.google.com/spreadsheets/d/${state.sheetId}/edit` : '';
   let lockResult = '';
+  let advOpen = false;
   const s = openSheet({
     title: () => t('settings'),
     render: () => {
       const theme = store.get('theme', 'system');
       return `
-      <form data-form="sheet">
-        <label class="field"><span class="label">${t('sheet_label')}</span>
-          <input class="input" name="sheet" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(sheetUrl)}" placeholder="https://docs.google.com/spreadsheets/d/…">
-        </label>
-        <p class="err-text hidden" data-err>${t('sheet_invalid')}</p>
-        <div class="row"><button class="btn primary grow" type="submit">${t('load_sheet')}</button>${sheetUrl ? `<a class="btn" href="${esc(sheetUrl)}" target="_blank" rel="noopener">${t('open')}</a>` : ''}</div>
-      </form>
-      <div class="divider"></div>
       <div class="field"><span class="label">${t('language')}</span>
         <div class="segmented big" role="group">${[['system', t('lang_system')], ['en', 'English'], ['de', 'Deutsch']].map(([v, l]) => `<button data-lang-set="${v}" class="${langSetting() === v ? 'on' : ''}">${l}</button>`).join('')}</div>
       </div>
@@ -866,20 +859,32 @@ function openSettings() {
       </div>
       <div class="divider"></div>
       ${installSection()}
-      <div class="field"><span class="label">${t('write_access')}</span>
-        <div class="account"><span class="dot ${scriptUrl() ? 'on' : ''}"></span><div class="grow small">${scriptUrl()
-          ? t('wa_on')
-          : t('wa_off')}</div></div>
-        <form data-form="script">
-          <label class="field" style="margin-bottom:10px"><span class="label">${t('script_url')}</span>
-            <input class="input" name="url" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(scriptUrl())}" placeholder="https://script.google.com/macros/s/…/exec">
-          </label>
-          <button class="btn ${scriptUrl() ? '' : 'primary'} block" type="submit">${scriptUrl() ? t('test_update') : t('connect')}</button>
-        </form>
-      </div>
-      <details class="adv"${lockResult ? ' open' : ''}>
+      <button class="btn block" data-act="reload-data-s">${t('reload_now')}</button>
+      <div class="divider"></div>
+      <details class="adv"${advOpen || lockResult ? ' open' : ''}>
         <summary>${t('advanced')}</summary>
-        <div class="field" style="margin-top:10px"><span class="label">${t('lock_title')}</span>
+        <div style="margin-top:12px">
+        <form data-form="sheet">
+          <label class="field"><span class="label">${t('sheet_label')}</span>
+            <input class="input" name="sheet" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(sheetUrl)}" placeholder="https://docs.google.com/spreadsheets/d/…">
+          </label>
+          <p class="err-text hidden" data-err>${t('sheet_invalid')}</p>
+          <div class="row"><button class="btn primary grow" type="submit">${t('load_sheet')}</button>${sheetUrl ? `<a class="btn" href="${esc(sheetUrl)}" target="_blank" rel="noopener">${t('open')}</a>` : ''}</div>
+        </form>
+        <div class="divider"></div>
+        <div class="field"><span class="label">${t('write_access')}</span>
+          <div class="account"><span class="dot ${scriptUrl() ? 'on' : ''}"></span><div class="grow small">${scriptUrl()
+            ? t('wa_on')
+            : t('wa_off')}</div></div>
+          <form data-form="script">
+            <label class="field" style="margin-bottom:10px"><span class="label">${t('script_url')}</span>
+              <input class="input" name="url" autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(scriptUrl())}" placeholder="https://script.google.com/macros/s/…/exec">
+            </label>
+            <button class="btn ${scriptUrl() ? '' : 'primary'} block" type="submit">${scriptUrl() ? t('test_update') : t('connect')}</button>
+          </form>
+        </div>
+        <div class="divider"></div>
+        <div class="field" ><span class="label">${t('lock_title')}</span>
           <p class="hint" style="margin:0 0 10px">${t('lock_hint')}</p>
           ${lockResult ? `
             <textarea class="input" readonly rows="4" style="font-family:ui-monospace,monospace;font-size:12px" data-lock-out>lockedSheet: '${esc(lockResult)}',</textarea>
@@ -893,12 +898,13 @@ function openSettings() {
         </div>
         <div class="divider"></div>
         <button class="btn block danger" data-act="reset">${t('reset')}</button>
+        </div>
       </details>
-      <div class="divider"></div>
-      <button class="btn block" data-act="reload-data-s">${t('reload_now')}</button>
       <p class="hint" style="margin-top:12px">${state.loadedAt ? t('data_loaded', { time: new Date(state.loadedAt).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' }) }) : t('data_not_loaded')} · ${t('version', { v: APP_VERSION })}${storagePersisted === true ? ' · ' + t('persist_yes') : storagePersisted === false ? ' · ' + t('persist_no') : ''}</p>`;
     },
   });
+  // remember whether "Advanced" is open, so re-drawing the sheet doesn't collapse it
+  s.el.addEventListener('toggle', (e) => { if (e.target.matches && e.target.matches('details.adv')) advOpen = e.target.open; }, true);
   s.el.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = e.target;
