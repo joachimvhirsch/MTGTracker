@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261015a';
+const APP_VERSION = '20261015b';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -402,6 +402,8 @@ const ICON = {
   edit: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   close: '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+  // a stack of cards with a small "+" on the front card
+  deck: '<svg viewBox="0 0 24 24"><path d="M9 4.5V4a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-.5"/><path d="M6.5 7.5V7a2 2 0 0 1 2-2h6.5a2 2 0 0 1 2 2v.5"/><rect x="4" y="8" width="13" height="14" rx="2"/><path d="M10.5 12.5v5M8 15h5"/></svg>',
 };
 
 /* Optional custom color icons: icons/W.svg, U.svg, B.svg, R.svg, G.svg, C.svg next to index.html.
@@ -689,7 +691,7 @@ function viewTable() {
         <td class="num"><span style="font-weight:600">${r.rec.m}</span><span class="rec">${recStr(r.rec)}</span></td>
         <td class="num"><span class="wr">${pct(wr(r.rec))}</span><span class="wr-bar"><i style="width:${(wr(r.rec) || 0) * 100}%"></i></span></td>
       </tr>`).join('')}</tbody></table></div>` : `<div class="empty"><h2>${t('no_decks')}</h2><p>${t(ui.showInactive ? 'nothing_matches' : 'no_active_match')}</p></div>`}
-    <button class="fab-left" data-act="new-deck">${ICON.plus}<span>${t('new_deck')}</span></button>`;
+    <button class="fab fab-left" data-act="new-deck" aria-label="${t('new_deck')}" title="${t('new_deck')}">${ICON.deck}</button>`;
 }
 
 /* ------------------------------------------------------------------ view: matches */
