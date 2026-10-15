@@ -71,10 +71,10 @@ window.I18N = {
 
     // decks
     search_ph: 'Search name or tag', all: 'All', decks_n: (n) => `${n} ${n === 1 ? 'deck' : 'decks'}`,
-    new_deck: 'New deck', no_games: 'no games',
+    new_deck: 'New deck', no_games: 'no games', show_inactive: 'Show inactive decks',
 
     // deck detail
-    deck_not_found: 'Deck not found', back_to_decks: 'Back to decks', back: '‹ Back', edit: 'Edit',
+    deck_not_found: 'Deck not found', back_to_decks: 'Back to table', back: '‹ Back', edit: 'Edit',
     kpi_winrate: 'Win rate', rec_in: '{rec} in {matches}', kpi_games: 'Games', games_rec: '{gw}–{gl} games',
     kpi_streak: 'Streak', current: 'current', kpi_last_played: 'Last played',
     form_title: 'Form', form_sub: 'Last {n} matches, newest first', form_tip: '{date} vs {opp} {gw}–{gl}',
@@ -135,7 +135,7 @@ window.I18N = {
     edit_deck: 'Edit deck', save_changes: 'Save changes', add_deck: 'Add deck',
     name: 'Name', name_ph: 'e.g. Izzet Tempo', colors: 'Colors', colorless_hint: 'None selected = colorless.',
     tags: 'Tags', tags_ph: 'control, artifacts', players: 'Players',
-    active_hint: 'Inactive decks are hidden from the league table and the match form',
+    active_hint: 'Inactive decks are hidden in the table (unless shown) and in the new-match form',
     rename_hint: 'Renaming also updates this deck’s name in the Matches tab.',
     e_name: 'Give the deck a name.', e_player: 'Pick at least one player.',
     e_dup: 'A deck with this name already exists. Matches reference decks by name, so names must be unique.',
@@ -210,10 +210,10 @@ window.I18N = {
 
     // Decks
     search_ph: 'Name oder Tag suchen', all: 'Alle', decks_n: (n) => `${n} ${n === 1 ? 'Deck' : 'Decks'}`,
-    new_deck: 'Neues Deck', no_games: 'nicht gespielt',
+    new_deck: 'Neues Deck', no_games: 'nicht gespielt', show_inactive: 'Inaktive Decks anzeigen',
 
     // Deck-Details
-    deck_not_found: 'Deck nicht gefunden', back_to_decks: 'Zurück zu den Decks', back: '‹ Zurück', edit: 'Bearbeiten',
+    deck_not_found: 'Deck nicht gefunden', back_to_decks: 'Zurück zur Tabelle', back: '‹ Zurück', edit: 'Bearbeiten',
     kpi_winrate: 'Winrate', rec_in: '{rec} in {matches}', kpi_games: 'Spiele', games_rec: '{gw}–{gl} Spiele',
     kpi_streak: 'Serie', current: 'aktuell', kpi_last_played: 'Zuletzt gespielt',
     form_title: 'Form', form_sub: 'Letzte {n} Matches, neueste zuerst', form_tip: '{date} gegen {opp} {gw}–{gl}',
@@ -274,7 +274,7 @@ window.I18N = {
     edit_deck: 'Deck bearbeiten', save_changes: 'Änderungen speichern', add_deck: 'Deck hinzufügen',
     name: 'Name', name_ph: 'z. B. Izzet Tempo', colors: 'Farben', colorless_hint: 'Keine Auswahl = farblos.',
     tags: 'Tags', tags_ph: 'control, artifacts', players: 'Spieler',
-    active_hint: 'Inaktive Decks werden in der Tabelle und im Match-Formular ausgeblendet',
+    active_hint: 'Inaktive Decks werden in der Tabelle (sofern nicht eingeblendet) und beim Eintragen neuer Matches ausgeblendet',
     rename_hint: 'Beim Umbenennen wird der Name auch im Tabellenblatt „Matches“ geändert.',
     e_name: 'Gib dem Deck einen Namen.', e_player: 'Wähle mindestens einen Spieler.',
     e_dup: 'Ein Deck mit diesem Namen gibt es schon. Matches verweisen über den Namen auf Decks, daher müssen Namen eindeutig sein.',

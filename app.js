@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261009a';
+const APP_VERSION = '20261015a';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -300,7 +300,7 @@ function deckRecords(matches) {
 /* ------------------------------------------------------------------ state */
 const UI_DEFAULTS = {
   home: { period: 'all', colorMetric: 'played', tagMetric: 'played' },
-  table: { sort: 'wr', dir: -1, player: '', colors: [], tags: [] },
+  table: { sort: 'wr', dir: -1, period: 'all', showInactive: false, q: '', colors: [] },
   matches: { deck: '', player: '' },
   decks: { q: '', status: 'all', player: '', colors: [] },
 };
@@ -310,7 +310,8 @@ const state = {
   data: null, config: null, loading: false, error: null, notPublic: false, loadedAt: 0,
   ui: Object.fromEntries(Object.entries(UI_DEFAULTS).map(([k, v]) => [k, { ...v, ...(savedUi[k] || {}) }])),
 };
-state.ui.decks.q = '';
+state.ui.table.q = '';
+if (location.hash.startsWith('#/decks')) location.replace('#/table');
 
 function getPath(path) { return path.split('.').reduce((o, k) => o[k], state.ui); }
 function setPath(path, val) {
@@ -366,7 +367,7 @@ function route() {
   return { name: name || 'home', arg: arg ? decodeURIComponent(arg) : '' };
 }
 
-const VIEWS = { home: viewHome, table: viewTable, matches: viewMatches, decks: viewDecks, deck: viewDeck };
+const VIEWS = { home: viewHome, table: viewTable, matches: viewMatches, decks: viewTable, deck: viewDeck };
 const TAB_TITLES = { home: 'Home', table: 'Table', matches: 'Matches', decks: 'Decks', deck: 'Deck' };
 
 function render() {
@@ -376,7 +377,7 @@ function render() {
   const ae = document.activeElement;
   const focusModel = ae && ae.dataset && ae.dataset.model && view.contains(ae) ? { m: ae.dataset.model, s: ae.selectionStart } : null;
 
-  const tabName = r.name === 'deck' ? 'decks' : r.name;
+  const tabName = r.name === 'deck' || r.name === 'decks' ? 'table' : r.name;
   $$('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tabName));
   document.body.classList.toggle('no-chrome', !state.sheetId || (!state.data && !state.loading));
 
@@ -655,8 +656,12 @@ function deckMatchesFilters(deck, f) {
 
 function viewTable() {
   const d = state.data, ui = state.ui.table;
-  const recs = deckRecords(d.matches);
-  let rows = d.decks.filter((x) => x.active && deckMatchesFilters(x, { ...ui, player: '' })).map((deck) => ({ deck, rec: recs.get(deck.id) || emptyRec(), pn: playerNames(deck) }));
+  const recs = deckRecords(filterPeriod(d.matches, ui.period));
+  const q = norm(ui.q);
+  let rows = d.decks
+    .filter((x) => (ui.showInactive || x.active) && deckMatchesFilters(x, { colors: ui.colors }) &&
+      (!q || norm(x.name).includes(q) || x.tags.some((tg) => norm(tg).includes(q))))
+    .map((deck) => ({ deck, rec: recs.get(deck.id) || emptyRec(), pn: playerNames(deck) }));
   const byWr = (a, b) => ((wr(b.rec) ?? -1) - (wr(a.rec) ?? -1)) || ((gwr(b.rec) ?? -1) - (gwr(a.rec) ?? -1)) || (b.rec.m - a.rec.m) || a.deck.name.localeCompare(b.deck.name);
   const cmp = {
     wr: byWr,
@@ -664,24 +669,27 @@ function viewTable() {
     player: (a, b) => a.pn.localeCompare(b.pn) || byWr(a, b),
   }[ui.sort] || byWr;
   rows.sort((a, b) => cmp(a, b) * (ui.dir === -1 ? 1 : -1));
-  const nFilters = ui.colors.length + ui.tags.length;
+  const nFilters = ui.colors.length + (q ? 1 : 0);
   const arrow = (ui.sort === 'player') === (ui.dir === -1) ? '↑' : '↓';
   const th = (key, label) => `<button data-sort="${key}" class="${ui.sort === key ? 'on' : ''}" aria-label="${t('sort_by', { x: label })}">${label}<span class="sort-ind">${ui.sort === key ? arrow : '↕'}</span></button>`;
 
   return `<div class="filters">
+      ${segmented('table.period', ui.period, [['all', t('period_all')], ['year', t('period_year')], ['90', t('period_90')], ['30', t('period_30')]])}
+      <label class="switch"><span>${t('show_inactive')}</span><input type="checkbox" data-model="table.showInactive" ${ui.showInactive ? 'checked' : ''}></label>
+      <input class="input" type="search" placeholder="${t('search_ph')}" data-model="table.q" value="${esc(ui.q)}">
       <div class="chips">${colorChips('table.colors', ui.colors, true)}</div>
-      ${d.allTags.length ? `<div class="chips">${d.allTags.map((t) => `<button class="chip${ui.tags.includes(t) ? ' on' : ''}" data-toggle="table.tags" data-val="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}
     </div>
-    <div class="toolbar"><span class="count">${t('active_decks_n', rows.length)}${nFilters ? ` · <button class="link-btn" data-act="clear-table">${t('clear_filters')}</button>` : ''}</span><span class="count">${t('tap_sort')}</span></div>
+    <div class="toolbar"><span class="count">${ui.showInactive ? t('decks_n', rows.length) : t('active_decks_n', rows.length)}${nFilters ? ` · <button class="link-btn" data-act="clear-table">${t('clear_filters')}</button>` : ''}</span><span class="count">${t('tap_sort')}</span></div>
     ${rows.length ? `<div class="card" style="padding:10px 12px 4px"><table class="league">
       <thead><tr><th>#</th><th>${t('col_deck')}</th><th class="pl">${th('player', t('col_player'))}</th><th>${th('matches', t('col_m'))}</th><th>${th('wr', t('col_win'))}</th></tr></thead>
-      <tbody>${rows.map((r, i) => `<tr class="tap" data-href="#/deck/${encodeURIComponent(r.deck.id)}">
+      <tbody>${rows.map((r, i) => `<tr class="tap${r.deck.active ? '' : ' inactive-row'}" data-href="#/deck/${encodeURIComponent(r.deck.id)}">
         <td class="num">${i + 1}</td>
-        <td class="deck-cell"><span class="name">${esc(r.deck.name)}</span><span class="meta">${pips(r.deck.colors)}</span></td>
+        <td class="deck-cell"><span class="name">${esc(r.deck.name)}</span><span class="meta">${pips(r.deck.colors)}${r.deck.active ? '' : `<span class="badge inactive">${t('inactive')}</span>`}</span></td>
         <td class="pl">${esc(r.pn)}</td>
         <td class="num"><span style="font-weight:600">${r.rec.m}</span><span class="rec">${recStr(r.rec)}</span></td>
         <td class="num"><span class="wr">${pct(wr(r.rec))}</span><span class="wr-bar"><i style="width:${(wr(r.rec) || 0) * 100}%"></i></span></td>
-      </tr>`).join('')}</tbody></table></div>` : `<div class="empty"><h2>${t('no_decks')}</h2><p>${t('no_active_match')}</p></div>`}`;
+      </tr>`).join('')}</tbody></table></div>` : `<div class="empty"><h2>${t('no_decks')}</h2><p>${t(ui.showInactive ? 'nothing_matches' : 'no_active_match')}</p></div>`}
+    <button class="fab-left" data-act="new-deck">${ICON.plus}<span>${t('new_deck')}</span></button>`;
 }
 
 /* ------------------------------------------------------------------ view: matches */
@@ -710,42 +718,11 @@ function viewMatches() {
     ${matchList(ms, { editable: true, emptyText: d.matches.length ? t('nothing_matches') : t('first_match') })}`;
 }
 
-/* ------------------------------------------------------------------ view: decks */
-function viewDecks() {
-  const d = state.data, ui = state.ui.decks;
-  const recs = deckRecords(d.matches);
-  const q = norm(ui.q);
-  const rows = d.decks.filter((x) =>
-    (ui.status === 'all' || (ui.status === 'active') === x.active) &&
-    deckMatchesFilters(x, ui) &&
-    (!q || norm(x.name).includes(q) || x.tags.some((t) => norm(t).includes(q)))
-  ).sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name));
-  return `<div class="filters">
-      <input class="input" type="search" placeholder="${t('search_ph')}" data-model="decks.q" value="${esc(ui.q)}">
-      ${segmented('decks.status', ui.status, [['all', t('all')], ['active', t('active')], ['inactive', t('inactive')]])}
-      <div class="row"><div class="grow">${playerSelect('decks.player', ui.player)}</div></div>
-      <div class="chips">${colorChips('decks.colors', ui.colors, true)}</div>
-    </div>
-    <div class="toolbar"><span class="count">${t('decks_n', rows.length)}</span><button class="btn sm" data-act="new-deck">${ICON.plus}${t('new_deck')}</button></div>
-    ${rows.length ? `<div class="list">${rows.map((x) => {
-      const rec = recs.get(x.id) || emptyRec();
-      return `<a class="list-item tap" href="#/deck/${encodeURIComponent(x.id)}">
-        ${pips(x.colors)}
-        <div class="li-main">
-          <div class="li-title">${esc(x.name)}</div>
-          <div class="li-sub"><span>${esc(playerNames(x))}</span>${x.active ? '' : `<span class="badge inactive">${t('inactive')}</span>`}${x.tags.map((tg) => `<span class="tag">${esc(tg)}</span>`).join('')}</div>
-        </div>
-        <div class="li-end"><div class="num" style="font-weight:650">${pct(wr(rec))}</div><div class="num small faint">${rec.m ? recStr(rec) : t('no_games')}</div></div>
-        ${ICON.chev}
-      </a>`;
-    }).join('')}</div>` : `<div class="empty"><h2>${t('no_decks')}</h2><p>${t('nothing_matches')}</p></div>`}`;
-}
-
 /* ------------------------------------------------------------------ view: deck detail */
 function viewDeck(id) {
   const d = state.data;
   const deck = d.deckById.get(id);
-  if (!deck || deck.ghost) return `<div class="empty"><h2>${t('deck_not_found')}</h2><p><a href="#/decks">${t('back_to_decks')}</a></p></div>`;
+  if (!deck || deck.ghost) return `<div class="empty"><h2>${t('deck_not_found')}</h2><p><a href="#/table">${t('back_to_decks')}</a></p></div>`;
 
   const ss = d.matches.flatMap(sides).filter((s) => s.deck.id === deck.id);
   const rec = ss.reduce(addRec, emptyRec());
@@ -1256,10 +1233,10 @@ document.addEventListener('click', async (e) => {
     if (a === 'settings') openSettings();
     else if (a === 'refresh') load();
     else if (a === 'flip-dir') { setPath('table.dir', -getPath('table.dir')); render(); }
-    else if (a === 'clear-table') { setPath('table.colors', []); setPath('table.tags', []); render(); }
+    else if (a === 'clear-table') { setPath('table.colors', []); setPath('table.q', ''); render(); }
     else if (a === 'clear-matches') { setPath('matches.deck', ''); setPath('matches.player', ''); render(); }
     else if (a === 'new-deck') openDeckEditor(null);
-    else if (a === 'back') { if (history.length > 1) history.back(); else location.hash = '#/decks'; }
+    else if (a === 'back') { if (history.length > 1) history.back(); else location.hash = '#/table'; }
     else if (a === 'reload-data') load({ toast: true });
     else if (a === 'manual-sheet') { state.manualEntry = true; render(); }
     else if (a === 'password-entry') { state.manualEntry = false; render(); }

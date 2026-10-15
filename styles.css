@@ -432,3 +432,17 @@ body.loading #loadbar { opacity: 1; animation: loadbar 1s linear infinite; }
 .match.tap { cursor: pointer; }
 .match.tap:active { background: var(--surface-2); }
 .btn.danger.confirm { background: var(--loss); color: #fff; border-color: transparent; }
+
+/* Table tab: "New deck" button bottom-left, mirroring the + button */
+.fab-left {
+  position: fixed; z-index: 21; left: max(16px, calc(50% - 360px + 16px));
+  bottom: calc(env(safe-area-inset-bottom) + 25px);
+  display: inline-flex; align-items: center; gap: 6px; height: 48px; padding: 0 18px 0 14px;
+  border-radius: 16px; border: 1px solid var(--line); cursor: pointer;
+  background: var(--surface); color: var(--ink); font-weight: 650; font-size: 14.5px; box-shadow: var(--shadow);
+}
+.fab-left svg { width: 20px; height: 20px; }
+.fab-left:active { transform: scale(.97); }
+.league tr.inactive-row .name { color: var(--ink-2); }
+.league .meta .badge { margin-left: 2px; }
+.navrow .tabbar { grid-template-columns: repeat(3, 1fr); }
