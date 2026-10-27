@@ -130,6 +130,8 @@ window.I18N = {
     err_no_match_id: 'This match has no id in the sheet, so it can’t be edited here. Give it one in the Matches tab.',
     err_script_old: 'The Apps Script in the sheet is outdated. Update Code.gs (Deploy → Manage deployments → Edit → New version).',
     match_saved: 'Match saved',
+    pd_home_sub: 'Match win rate · {n} matches where “On the play” was recorded · dashed line = 50%',
+    pd_home_empty: 'No matches with “On the play” recorded yet.',
     wins_label: 'Wins', mulligans: 'Mulligans', draws_label: 'Draws', other_decks: 'Other decks',
     enter_wins: 'Enter the games won by each player.',
 
@@ -271,6 +273,8 @@ window.I18N = {
     err_no_match_id: 'Dieses Match hat im Sheet keine ID und kann hier nicht bearbeitet werden. Trage im Tabellenblatt „Matches“ eine ID ein.',
     err_script_old: 'Das Apps Script im Sheet ist veraltet. Aktualisiere Code.gs (Bereitstellen → Bereitstellungen verwalten → Bearbeiten → Neue Version).',
     match_saved: 'Match gespeichert',
+    pd_home_sub: 'Match-Winrate · {n} Matches mit „On the play“-Angabe · gestrichelte Linie = 50 %',
+    pd_home_empty: 'Noch keine Matches mit „On the play“-Angabe.',
     wins_label: 'Siege', mulligans: 'Mulligans', draws_label: 'Unentschieden', other_decks: 'Andere Decks',
     enter_wins: 'Trage die gewonnenen Spiele je Spieler ein.',
 

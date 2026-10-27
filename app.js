@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261027a';
+const APP_VERSION = '20261027b';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -590,6 +590,17 @@ function viewHome() {
     ${pRows.length ? `<div class="legend-note">${[...pRec.values()].map(({ p, rec }) => t('games_note', { name: esc(p.name), gw: rec.gw, gl: rec.gl, p: pct(gwr(rec)) })).join(' · ')}</div>` : ''}
   </section>`;
 
+  // On the play vs. on the draw (only matches where it was recorded)
+  const pdSides = allSides.filter((s) => s.onPlay != null);
+  const pdRows = [[t('on_play'), true], [t('on_draw'), false]].map(([label, v]) => {
+    const rec = pdSides.filter((s) => s.onPlay === v).reduce(addRec, emptyRec());
+    return { label, value: wr(rec), valueHtml: `${pct(wr(rec))}<small>${recStr(rec)}</small>`, title: `${label}: ${recStr(rec)}` };
+  });
+  const pdCard = `<section class="card">
+    <h2>${t('playdraw_title')}</h2><p class="card-sub">${t('pd_home_sub', { n: pdSides.length / 2 })}</p>
+    ${pdSides.length ? hbars(pdRows, { max: 1, axis: 0.5, big: true }) : `<p class="muted small">${t('pd_home_empty')}</p>`}
+  </section>`;
+
   // Colors
   const cStat = {}; [...COLORS, 'C'].forEach((c) => { cStat[c] = { n: 0, rec: emptyRec() }; });
   for (const s of allSides) {
@@ -644,7 +655,7 @@ function viewHome() {
   return `<div class="filters">
       ${segmented('home.period', ui.period, [['all', t('period_all')], ['year', t('period_year')], ['90', t('period_90')], ['30', t('period_30')]])}
     </div>
-    ${kpis}${playersCard}${colorsCard}${tagsCard}`;
+    ${kpis}${playersCard}${pdCard}${colorsCard}${tagsCard}`;
 }
 
 /* ------------------------------------------------------------------ view: league table */
@@ -1023,19 +1034,26 @@ function openMatchForm(edit) {
       ? `<button class="btn danger" data-delete>${t('delete')}</button><button class="btn primary" data-save>${t('save_changes')}</button>`
       : `<button class="btn" data-close>${t('cancel')}</button><button class="btn primary" data-save>${t('save_match')}</button>`,
     render: () => `
-      <div class="field"><span class="label">${t('date')}</span>
-        <div class="date-field">
-          <span class="input date-display">${deDate(f.date)}</span>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
-          <input type="date" data-f="date" value="${f.date}" max="${isoDate(new Date())}" aria-label="${t('date')}">
+      <div class="date-draws">
+        <div class="field"><span class="label">${t('date')}</span>
+          <div class="date-field">
+            <span class="input date-display">${deDate(f.date)}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+            <input type="date" data-f="date" value="${f.date}" max="${isoDate(new Date())}" aria-label="${t('date')}">
+          </div>
+        </div>
+        <div class="field"><span class="label">${t('draws_label')}</span>
+          <div class="mini-step">
+            <button type="button" data-step="gd" data-d="-1" aria-label="${t('draws_label')} −1">−</button>
+            <input type="number" inputmode="numeric" min="0" max="9" data-f="gd" value="${f.gd ?? 0}" aria-label="${t('draws_label')}">
+            <button type="button" data-step="gd" data-d="1" aria-label="${t('draws_label')} +1">+</button>
+          </div>
         </div>
       </div>
       ${sideBox('pa', 'da', 'ga', 'ma', t('player1'))}
       <div class="vs">${t('vs')}</div>
       ${sideBox('pb', 'db', 'gb', 'mb', t('player2'))}
-      <div class="draws-row">${stepper('gd', t('draws_label'))}
-        <p class="hint">${total() ? (f.ga === f.gb ? t('match_draw') : t('wins_match', { name: esc(pName(f.ga > f.gb ? f.pa : f.pb)) })) : t('enter_wins')}</p>
-      </div>
+      <p class="hint result-hint">${total() ? (f.ga === f.gb ? t('match_draw') : t('wins_match', { name: esc(pName(f.ga > f.gb ? f.pa : f.pb)) })) + (f.gd ? ' · ' + t('drawn_games_n', f.gd) : '') : t('enter_wins')}</p>
       <div class="field"><span class="label">${t('on_play_label')} <span class="faint" style="font-weight:500">${t('optional')}</span></span>
         <div class="segmented">${[['', t('unknown')], ['a', pName(f.pa)], ['b', pName(f.pb)]].map(([v, l]) => `<button type="button" data-onplay="${v}" class="${f.onPlay === v ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
       </div>
