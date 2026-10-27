@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261027b';
+const APP_VERSION = '20261028b';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -252,7 +252,9 @@ function buildModel(raw) {
     if (/^\d{4}-/.test(m.date)) dateStyle = 'iso'; else if (/\//.test(m.date)) dateStyle = 'mdy';
     const ga = parseInt(m.gamesa, 10) || 0, gb = parseInt(m.gamesb, 10) || 0;
     const gd = parseInt(m.draws ?? m.gamesd ?? m.gamesdraw ?? m.draw ?? '', 10) || 0;
-    const ma = parseInt(m.mulligansa ?? '', 10) || 0, mb = parseInt(m.mulligansb ?? '', 10) || 0;
+    // mulligans: a number (0 included) when recorded, null when the cell is empty
+    const mull = (v) => { const n = parseInt(v ?? '', 10); return isNaN(n) ? null : n; };
+    const ma = mull(m.mulligansa), mb = mull(m.mulligansb);
     return {
       id: m.id || 'row' + m._row, date: parseDate(m.date), dateRaw: m.date,
       pa, pb, da: resolveDeck(m.decka, pa), db: resolveDeck(m.deckb, pb),
@@ -278,13 +280,19 @@ function sides(m) {
   const res = (x, y) => (x > y ? 'W' : x < y ? 'L' : 'D');
   const playA = m.onPlay ? (norm(m.onPlay) === norm(m.pa && m.pa.name) || norm(m.onPlay) === norm(m.pa && m.pa.id) || norm(m.onPlay) === 'a') : null;
   return [
-    { m, player: m.pa, deck: m.da, opp: m.pb, oppDeck: m.db, gw: m.ga, gl: m.gb, r: res(m.ga, m.gb), onPlay: playA },
-    { m, player: m.pb, deck: m.db, opp: m.pa, oppDeck: m.da, gw: m.gb, gl: m.ga, r: res(m.gb, m.ga), onPlay: playA == null ? null : !playA },
+    { m, player: m.pa, deck: m.da, opp: m.pb, oppDeck: m.db, gw: m.ga, gl: m.gb, r: res(m.ga, m.gb), onPlay: playA, mull: m.ma ?? null },
+    { m, player: m.pb, deck: m.db, opp: m.pa, oppDeck: m.da, gw: m.gb, gl: m.ga, r: res(m.gb, m.ga), onPlay: playA == null ? null : !playA, mull: m.mb ?? null },
   ];
 }
 
-function emptyRec() { return { m: 0, w: 0, l: 0, d: 0, gw: 0, gl: 0 }; }
-function addRec(rec, s) { rec.m++; rec[s.r === 'W' ? 'w' : s.r === 'L' ? 'l' : 'd']++; rec.gw += s.gw; rec.gl += s.gl; return rec; }
+function emptyRec() { return { m: 0, w: 0, l: 0, d: 0, gw: 0, gl: 0, mullN: 0, mullSum: 0 }; }
+function addRec(rec, s) {
+  rec.m++; rec[s.r === 'W' ? 'w' : s.r === 'L' ? 'l' : 'd']++; rec.gw += s.gw; rec.gl += s.gl;
+  if (s.mull != null) { rec.mullN++; rec.mullSum += s.mull; } // only matches with mulligan data
+  return rec;
+}
+const avgMull = (rec) => (rec.mullN ? rec.mullSum / rec.mullN : null);
+const fmtAvg = (x) => (x == null ? t('na') : x.toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
 const wr = (rec) => (rec.m ? rec.w / rec.m : null);
 const gwr = (rec) => (rec.gw + rec.gl ? rec.gw / (rec.gw + rec.gl) : null);
 const recStr = (rec) => `${rec.w}–${rec.l}${rec.d ? '–' + rec.d : ''}`;
@@ -587,7 +595,6 @@ function viewHome() {
   const playersCard = `<section class="card">
     <h2>${t('player_wr_title')}</h2><p class="card-sub">${t('player_wr_sub')}</p>
     ${hbars(pRows, { max: 1, axis: 0.5, big: true })}
-    ${pRows.length ? `<div class="legend-note">${[...pRec.values()].map(({ p, rec }) => t('games_note', { name: esc(p.name), gw: rec.gw, gl: rec.gl, p: pct(gwr(rec)) })).join(' · ')}</div>` : ''}
   </section>`;
 
   // On the play vs. on the draw (only matches where it was recorded)
@@ -597,7 +604,7 @@ function viewHome() {
     return { label, value: wr(rec), valueHtml: `${pct(wr(rec))}<small>${recStr(rec)}</small>`, title: `${label}: ${recStr(rec)}` };
   });
   const pdCard = `<section class="card">
-    <h2>${t('playdraw_title')}</h2><p class="card-sub">${t('pd_home_sub', { n: pdSides.length / 2 })}</p>
+    <h2>${t('pd_home_title')}</h2><p class="card-sub">${t('player_wr_sub')}</p>
     ${pdSides.length ? hbars(pdRows, { max: 1, axis: 0.5, big: true }) : `<p class="muted small">${t('pd_home_empty')}</p>`}
   </section>`;
 
@@ -680,6 +687,7 @@ function viewTable() {
   const cmp = {
     wr: byWr,
     matches: (a, b) => (b.rec.m - a.rec.m) || byWr(a, b),
+    mull: (a, b) => ((avgMull(b.rec) ?? -1) - (avgMull(a.rec) ?? -1)) || byWr(a, b),
     player: (a, b) => a.pn.localeCompare(b.pn) || byWr(a, b),
   }[ui.sort] || byWr;
   rows.sort((a, b) => cmp(a, b) * (ui.dir === -1 ? 1 : -1));
@@ -694,12 +702,13 @@ function viewTable() {
       <div class="chips">${colorChips('table.colors', ui.colors, true)}</div>
     </div>
     <div class="toolbar"><span class="count">${ui.showInactive ? t('decks_n', rows.length) : t('active_decks_n', rows.length)}${nFilters ? ` · <button class="link-btn" data-act="clear-table">${t('clear_filters')}</button>` : ''}</span><span class="count">${t('tap_sort')}</span></div>
-    ${rows.length ? `<div class="card" style="padding:10px 12px 4px"><table class="league">
-      <thead><tr><th>#</th><th>${t('col_deck')}</th><th class="pl">${th('player', t('col_player'))}</th><th>${th('matches', t('col_m'))}</th><th>${th('wr', t('col_win'))}</th></tr></thead>
+    ${rows.length ? `<div class="card league-card"><table class="league">
+      <thead><tr><th>#</th><th>${t('col_deck')}</th><th class="pl">${th('player', t('col_player'))}</th><th class="mu">${th('mull', t('col_mull'))}</th><th>${th('matches', t('col_m'))}</th><th>${th('wr', t('col_win'))}</th></tr></thead>
       <tbody>${rows.map((r, i) => `<tr class="tap${r.deck.active ? '' : ' inactive-row'}" data-href="#/deck/${encodeURIComponent(r.deck.id)}">
         <td class="num">${i + 1}</td>
         <td class="deck-cell"><span class="name">${esc(r.deck.name)}</span><span class="meta">${pips(r.deck.colors)}${r.deck.active ? '' : `<span class="badge inactive">${t('inactive')}</span>`}</span></td>
         <td class="pl">${esc(r.pn)}</td>
+        <td class="num mu${avgMull(r.rec) == null ? ' na' : ''}" title="${esc(t('mull_tip', { n: r.rec.mullN }))}">${fmtAvg(avgMull(r.rec))}</td>
         <td class="num"><span style="font-weight:600">${r.rec.m}</span><span class="rec">${recStr(r.rec)}</span></td>
         <td class="num"><span class="wr">${pct(wr(r.rec))}</span><span class="wr-bar"><i style="width:${(wr(r.rec) || 0) * 100}%"></i></span></td>
       </tr>`).join('')}</tbody></table></div>` : `<div class="empty"><h2>${t('no_decks')}</h2><p>${t(ui.showInactive ? 'nothing_matches' : 'no_active_match')}</p></div>`}
@@ -966,6 +975,7 @@ function nextId(list, fallbackPrefix) {
 }
 
 /* ------------------------------------------------------------------ add match */
+const OPTIONAL_STEP = ['ma', 'mb'];
 function openMatchForm(edit) {
   const d = state.data;
   if (!d) { toast(t('load_first'), true); return; }
@@ -978,7 +988,7 @@ function openMatchForm(edit) {
       date: edit.date ? isoDate(edit.date) : isoDate(new Date()),
       pa: edit.pa ? edit.pa.id : '', pb: edit.pb ? edit.pb.id : '',
       da: edit.da.id === '?' ? '' : edit.da.id, db: edit.db.id === '?' ? '' : edit.db.id,
-      ga: edit.ga, gb: edit.gb, gd: edit.gd || 0, ma: edit.ma || 0, mb: edit.mb || 0,
+      ga: edit.ga, gb: edit.gb, gd: edit.gd || 0, ma: edit.ma ?? null, mb: edit.mb ?? null,
       onPlay: sd[0].onPlay === true ? 'a' : sd[1].onPlay === true ? 'b' : '',
       notes: edit.notes || '', err: '', confirmDelete: false,
     };
@@ -986,7 +996,7 @@ function openMatchForm(edit) {
     date: isoDate(new Date()),
     pa: (last && last.pa && !last.pa.ghost && last.pa.id) || (ps[0] && ps[0].id) || '',
     pb: (last && last.pb && !last.pb.ghost && last.pb.id) || (ps[1] && ps[1].id) || '',
-    da: '', db: '', ga: 0, gb: 0, gd: 0, ma: 0, mb: 0, onPlay: '', notes: '', err: '',
+    da: '', db: '', ga: 0, gb: 0, gd: 0, ma: null, mb: null, onPlay: '', notes: '', err: '',
   };
   const players = edit ? [...ps, ...[edit.pa, edit.pb].filter((p) => p && p.ghost)] : ps;
   const pName = (id) => { const p = state.data.playerByRef.get(norm(id)); return p ? p.name : '—'; };
@@ -1006,7 +1016,7 @@ function openMatchForm(edit) {
       <span class="st-label">${esc(label)}</span>
       <div class="st-ctrl">
         <button type="button" data-step="${key}" data-d="-1" aria-label="${esc(label)} −1">−</button>
-        <input type="number" inputmode="numeric" min="0" max="9" data-f="${key}" value="${f[key] ?? 0}" aria-label="${esc(label)}">
+        <input type="number" inputmode="numeric" min="0" max="9" data-f="${key}" value="${f[key] ?? ''}" placeholder="${OPTIONAL_STEP.includes(key) ? '–' : '0'}" aria-label="${esc(label)}">
         <button type="button" data-step="${key}" data-d="1" aria-label="${esc(label)} +1">+</button>
       </div>
     </div>`;
@@ -1027,6 +1037,8 @@ function openMatchForm(edit) {
   };
   const deDate = (iso) => { const [y, m, dd] = String(iso).split('-'); return dd && m && y ? `${dd}.${m}.${y}` : '—'; };
   const clamp = (v) => (v === '' || v == null || isNaN(v) ? 0 : Math.max(0, Math.min(9, Math.round(Number(v)))));
+  // Mulligans may stay empty ("–" = not recorded). − from 0 goes back to empty; − or + from empty starts at 0 / 1.
+  const stepOptional = (v, dir) => (v == null ? (dir > 0 ? 1 : 0) : v === 0 && dir < 0 ? null : clamp(v + dir));
   const total = () => (f.ga || 0) + (f.gb || 0) + (f.gd || 0);
   const s = openSheet({
     title: edit ? t('edit_match') : t('new_match'),
@@ -1053,7 +1065,7 @@ function openMatchForm(edit) {
       ${sideBox('pa', 'da', 'ga', 'ma', t('player1'))}
       <div class="vs">${t('vs')}</div>
       ${sideBox('pb', 'db', 'gb', 'mb', t('player2'))}
-      <p class="hint result-hint">${total() ? (f.ga === f.gb ? t('match_draw') : t('wins_match', { name: esc(pName(f.ga > f.gb ? f.pa : f.pb)) })) + (f.gd ? ' · ' + t('drawn_games_n', f.gd) : '') : t('enter_wins')}</p>
+      ${total() ? `<p class="hint result-hint">${(f.ga === f.gb ? t('match_draw') : t('wins_match', { name: esc(pName(f.ga > f.gb ? f.pa : f.pb)) })) + (f.gd ? ' · ' + t('drawn_games_n', f.gd) : '')}</p>` : ''}
       <div class="field"><span class="label">${t('on_play_label')} <span class="faint" style="font-weight:500">${t('optional')}</span></span>
         <div class="segmented">${[['', t('unknown')], ['a', pName(f.pa)], ['b', pName(f.pb)]].map(([v, l]) => `<button type="button" data-onplay="${v}" class="${f.onPlay === v ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
       </div>
@@ -1062,7 +1074,8 @@ function openMatchForm(edit) {
   });
   s.el.addEventListener('change', (e) => {
     const k = e.target.dataset.f; if (!k) return;
-    if (['ga', 'gb', 'gd', 'ma', 'mb'].includes(k)) { f[k] = clamp(e.target.value); s.refresh(); return; }
+    if (OPTIONAL_STEP.includes(k)) { f[k] = e.target.value === '' ? null : clamp(e.target.value); s.refresh(); return; }
+    if (['ga', 'gb', 'gd'].includes(k)) { f[k] = clamp(e.target.value); s.refresh(); return; }
     if (k === 'date') { if (e.target.value) f.date = e.target.value; s.refresh(); return; }
     f[k] = e.target.value;
     if (k === 'pa' || k === 'pb') s.refresh();
@@ -1076,7 +1089,11 @@ function openMatchForm(edit) {
     const di = e.target.closest('.date-field input');
     if (di && di.showPicker && window.matchMedia('(pointer: fine)').matches) { try { di.showPicker(); } catch (x) { /* ignore */ } return; }
     const st = e.target.closest('[data-step]');
-    if (st) { const k = st.dataset.step; f[k] = clamp((f[k] || 0) + Number(st.dataset.d)); s.refresh(); return; }
+    if (st) {
+      const k = st.dataset.step, dir = Number(st.dataset.d);
+      f[k] = OPTIONAL_STEP.includes(k) ? stepOptional(f[k], dir) : clamp((f[k] || 0) + dir);
+      s.refresh(); return;
+    }
     const op = e.target.closest('[data-onplay]');
     if (op) { f.onPlay = op.dataset.onplay; s.refresh(); return; }
     const del = e.target.closest('[data-delete]');
@@ -1110,8 +1127,11 @@ function openMatchForm(edit) {
         playerA: pName(f.pa), deckA: deck(f.da).name,
         playerB: pName(f.pb), deckB: deck(f.db).name,
         onPlay: f.onPlay === 'a' ? pName(f.pa) : f.onPlay === 'b' ? pName(f.pb) : '',
-        gamesA: f.ga, gamesB: f.gb, mulligansA: f.ma, mulligansB: f.mb, notes: f.notes.trim(),
+        gamesA: f.ga, gamesB: f.gb, notes: f.notes.trim(),
       };
+      // empty cell = mulligans not recorded; 0 = recorded as none
+      if (f.ma != null || (edit && edit.ma != null)) data.mulligansA = f.ma ?? '';
+      if (f.mb != null || (edit && edit.mb != null)) data.mulligansB = f.mb ?? '';
       if (edit) { if (f.gd || edit.gd) data.draws = f.gd || ''; await callScript('updateMatch', { id: edit.id, data }); }
       else { if (f.gd) data.draws = f.gd; await callScript('addMatch', { data }); }
       s.close();

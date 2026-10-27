@@ -459,3 +459,19 @@ body.loading #loadbar { opacity: 1; animation: loadbar 1s linear infinite; }
 .mini-step input::-webkit-outer-spin-button, .mini-step input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .mini-step:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .result-hint { margin: -2px 2px 16px; }
+
+/* Table: average mulligans column */
+.league th.mu, .league td.mu { text-align: right; white-space: nowrap; }
+.league td.mu { font-size: 13.5px; color: var(--ink-2); }
+.league td.mu.na { color: var(--ink-3); font-size: 12px; }
+
+/* keep the 6-column table within a phone screen */
+.league-card { padding: 10px 8px 4px; }
+.league th { font-size: 10px; letter-spacing: .01em; padding: 0 3px 8px; }
+.league th button { gap: 1px; }
+.league th .sort-ind { font-size: 9px; }
+.league td { padding-left: 3px; padding-right: 3px; }
+.league td:first-child { width: 18px; }
+.league .deck-cell .name { overflow-wrap: anywhere; }
+.league td.pl { min-width: 0; }
+.league td.mu.na { font-size: 13.5px; }

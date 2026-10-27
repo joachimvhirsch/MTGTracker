@@ -59,7 +59,7 @@ window.I18N = {
     // table
     sort_by: 'Sort by {x}', active_decks_n: (n) => `${n} active ${n === 1 ? 'deck' : 'decks'}`,
     clear_filters: 'Clear filters', tap_sort: 'Tap a column to sort',
-    col_deck: 'Deck', col_player: 'Player', col_m: 'M', col_win: 'Win',
+    col_deck: 'Deck', col_player: 'Player', col_mull: 'Mull.', na: '–', mull_tip: 'Average mulligans per match ({n} matches with data)', col_m: 'M', col_win: 'Win',
     no_decks: 'No decks', no_active_match: 'No active deck matches these filters.',
 
     // matches
@@ -130,6 +130,7 @@ window.I18N = {
     err_no_match_id: 'This match has no id in the sheet, so it can’t be edited here. Give it one in the Matches tab.',
     err_script_old: 'The Apps Script in the sheet is outdated. Update Code.gs (Deploy → Manage deployments → Edit → New version).',
     match_saved: 'Match saved',
+    pd_home_title: 'On the play win rate',
     pd_home_sub: 'Match win rate · {n} matches where “On the play” was recorded · dashed line = 50%',
     pd_home_empty: 'No matches with “On the play” recorded yet.',
     wins_label: 'Wins', mulligans: 'Mulligans', draws_label: 'Draws', other_decks: 'Other decks',
@@ -202,7 +203,7 @@ window.I18N = {
     // Tabelle
     sort_by: 'Sortieren nach {x}', active_decks_n: (n) => `${n} ${n === 1 ? 'aktives Deck' : 'aktive Decks'}`,
     clear_filters: 'Filter zurücksetzen', tap_sort: 'Zum Sortieren auf eine Spalte tippen',
-    col_deck: 'Deck', col_player: 'Spieler', col_m: 'M', col_win: 'Winrate',
+    col_deck: 'Deck', col_player: 'Spieler', col_mull: 'Mull.', na: '–', mull_tip: 'Durchschnittliche Mulligans pro Match ({n} Matches mit Angabe)', col_m: 'M', col_win: 'Winrate',
     no_decks: 'Keine Decks', no_active_match: 'Kein aktives Deck passt zu diesen Filtern.',
 
     // Matches
@@ -273,6 +274,7 @@ window.I18N = {
     err_no_match_id: 'Dieses Match hat im Sheet keine ID und kann hier nicht bearbeitet werden. Trage im Tabellenblatt „Matches“ eine ID ein.',
     err_script_old: 'Das Apps Script im Sheet ist veraltet. Aktualisiere Code.gs (Bereitstellen → Bereitstellungen verwalten → Bearbeiten → Neue Version).',
     match_saved: 'Match gespeichert',
+    pd_home_title: 'Winrate On the play',
     pd_home_sub: 'Match-Winrate · {n} Matches mit „On the play“-Angabe · gestrichelte Linie = 50 %',
     pd_home_empty: 'Noch keine Matches mit „On the play“-Angabe.',
     wins_label: 'Siege', mulligans: 'Mulligans', draws_label: 'Unentschieden', other_decks: 'Andere Decks',
