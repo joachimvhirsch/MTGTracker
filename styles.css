@@ -439,3 +439,13 @@ body.loading #loadbar { opacity: 1; animation: loadbar 1s linear infinite; }
 .league tr.inactive-row .name { color: var(--ink-2); }
 .league .meta .badge { margin-left: 2px; }
 .navrow .tabbar { grid-template-columns: repeat(3, 1fr); }
+
+/* New/edit match: player + deck side by side, wins + mulligans side by side */
+.side-box { padding-bottom: 12px; }
+.pd-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 8px; }
+.pd-row .field { margin-bottom: 10px; }
+.wm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wm-row .stepper, .draws-row .stepper { background: var(--bg); }
+.draws-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: center; margin: 4px 0 16px; }
+.draws-row .stepper { background: var(--surface); }
+.draws-row .hint { margin: 0; }

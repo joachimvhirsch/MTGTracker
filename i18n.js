@@ -130,6 +130,8 @@ window.I18N = {
     err_no_match_id: 'This match has no id in the sheet, so it can’t be edited here. Give it one in the Matches tab.',
     err_script_old: 'The Apps Script in the sheet is outdated. Update Code.gs (Deploy → Manage deployments → Edit → New version).',
     match_saved: 'Match saved',
+    wins_label: 'Wins', mulligans: 'Mulligans', draws_label: 'Draws', other_decks: 'Other decks',
+    enter_wins: 'Enter the games won by each player.',
 
     // deck editor
     edit_deck: 'Edit deck', save_changes: 'Save changes', add_deck: 'Add deck',
@@ -218,7 +220,7 @@ window.I18N = {
     kpi_streak: 'Serie', current: 'aktuell', kpi_last_played: 'Zuletzt gespielt',
     form_title: 'Form', form_sub: 'Letzte {n} Matches, neueste zuerst', form_tip: '{date} gegen {opp} {gw}–{gl}',
     by_pilot: 'Nach Spieler', match_wr: 'Match-Winrate',
-    playdraw_title: 'Play / Draw', playdraw_sub: 'Wo bekannt ({k} von {n})', on_play: 'Auf dem Play', on_draw: 'Auf dem Draw',
+    playdraw_title: 'Play / Draw', playdraw_sub: 'Wo bekannt ({k} von {n})', on_play: 'On the play', on_draw: 'On the draw',
     matchups: 'Matchups', matchups_sub: 'Bilanz gegen jedes gegnerische Deck',
     vs_colors: 'Gegen gegnerische Farben', vs_colors_sub: 'Match-Winrate gegen Decks mit der jeweiligen Farbe · gestrichelte Linie = 50 %',
     vs_types: 'Gegen gegnerische Decktypen', vs_types_sub: 'Match-Winrate je gegnerischem Tag',
@@ -259,7 +261,7 @@ window.I18N = {
     other_result: '+ Anderes Ergebnis (z. B. 1–0, 1–1, Unentschieden)',
     match_draw: 'Match endet unentschieden', wins_match: '{name} gewinnt das Match',
     drawn_games_n: (n) => `${n} ${n === 1 ? 'unentschiedenes Spiel' : 'unentschiedene Spiele'}`,
-    on_play_label: 'Auf dem Play', unknown: 'Unbekannt', notes: 'Notizen', notes_ph: 'z. B. Mulligan auf 5 in Spiel 3',
+    on_play_label: 'On the play', unknown: 'Unbekannt', notes: 'Notizen', notes_ph: 'z. B. Mulligan auf 5 in Spiel 3',
     e_date: 'Wähle ein Datum.', e_players: 'Wähle beide Spieler.', e_diff: 'Wähle zwei verschiedene Spieler.',
     e_decks: 'Wähle für jeden Spieler ein Deck.', e_games: 'Gib die gewonnenen Spiele je Spieler ein (0, wenn keines).', e_one: 'Gib mindestens ein Spiel ein.',
     edit_match: 'Match bearbeiten', delete: 'Löschen', confirm_delete: 'Zum Löschen erneut tippen', deleting: 'Löschen…',
@@ -269,6 +271,8 @@ window.I18N = {
     err_no_match_id: 'Dieses Match hat im Sheet keine ID und kann hier nicht bearbeitet werden. Trage im Tabellenblatt „Matches“ eine ID ein.',
     err_script_old: 'Das Apps Script im Sheet ist veraltet. Aktualisiere Code.gs (Bereitstellen → Bereitstellungen verwalten → Bearbeiten → Neue Version).',
     match_saved: 'Match gespeichert',
+    wins_label: 'Siege', mulligans: 'Mulligans', draws_label: 'Unentschieden', other_decks: 'Andere Decks',
+    enter_wins: 'Trage die gewonnenen Spiele je Spieler ein.',
 
     // Deck-Editor
     edit_deck: 'Deck bearbeiten', save_changes: 'Änderungen speichern', add_deck: 'Deck hinzufügen',

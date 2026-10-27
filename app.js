@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261015b';
+const APP_VERSION = '20261027a';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -252,10 +252,11 @@ function buildModel(raw) {
     if (/^\d{4}-/.test(m.date)) dateStyle = 'iso'; else if (/\//.test(m.date)) dateStyle = 'mdy';
     const ga = parseInt(m.gamesa, 10) || 0, gb = parseInt(m.gamesb, 10) || 0;
     const gd = parseInt(m.draws ?? m.gamesd ?? m.gamesdraw ?? m.draw ?? '', 10) || 0;
+    const ma = parseInt(m.mulligansa ?? '', 10) || 0, mb = parseInt(m.mulligansb ?? '', 10) || 0;
     return {
       id: m.id || 'row' + m._row, date: parseDate(m.date), dateRaw: m.date,
       pa, pb, da: resolveDeck(m.decka, pa), db: resolveDeck(m.deckb, pb),
-      ga, gb, gd, onPlay: m.onplay || '', notes: m.notes || '', _row: m._row,
+      ga, gb, gd, ma, mb, onPlay: m.onplay || '', notes: m.notes || '', _row: m._row,
     };
   });
   matches.sort((a, b) => ((b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0)) || (b._row - a._row));
@@ -962,48 +963,60 @@ function openMatchForm(edit) {
   const last = d.matches[0];
   const f = edit ? (() => {
     const sd = sides(edit);
-    const quick = [[2, 0], [2, 1], [1, 2], [0, 2]].some(([a, b]) => a === edit.ga && b === edit.gb) && !edit.gd;
     return {
       date: edit.date ? isoDate(edit.date) : isoDate(new Date()),
       pa: edit.pa ? edit.pa.id : '', pb: edit.pb ? edit.pb.id : '',
       da: edit.da.id === '?' ? '' : edit.da.id, db: edit.db.id === '?' ? '' : edit.db.id,
-      ga: edit.ga, gb: edit.gb, gd: edit.gd || 0, custom: !quick,
+      ga: edit.ga, gb: edit.gb, gd: edit.gd || 0, ma: edit.ma || 0, mb: edit.mb || 0,
       onPlay: sd[0].onPlay === true ? 'a' : sd[1].onPlay === true ? 'b' : '',
-      notes: edit.notes || '', allDecks: false, err: '', confirmDelete: false,
+      notes: edit.notes || '', err: '', confirmDelete: false,
     };
   })() : {
     date: isoDate(new Date()),
     pa: (last && last.pa && !last.pa.ghost && last.pa.id) || (ps[0] && ps[0].id) || '',
     pb: (last && last.pb && !last.pb.ghost && last.pb.id) || (ps[1] && ps[1].id) || '',
-    da: '', db: '', ga: null, gb: null, gd: 0, onPlay: '', notes: '', allDecks: false, err: '',
-  };
-  // Editing: offer inactive decks too (and keep the match's current deck even if it isn't in the Decks tab).
-  const decksFor = (pid, dkey) => {
-    const list = state.data.decks.filter((x) => (edit || x.active) && (f.allDecks || x.playerIds.includes(pid)));
-    if (edit) {
-      const cur = state.data.deckById.get(f[dkey]);
-      if (cur && !list.includes(cur)) list.push(cur);
-    }
-    return list.sort((a, b) => (b.active - a.active) || a.name.localeCompare(b.name));
+    da: '', db: '', ga: 0, gb: 0, gd: 0, ma: 0, mb: 0, onPlay: '', notes: '', err: '',
   };
   const players = edit ? [...ps, ...[edit.pa, edit.pb].filter((p) => p && p.ghost)] : ps;
   const pName = (id) => { const p = state.data.playerByRef.get(norm(id)); return p ? p.name : '—'; };
-  const sideBox = (key, dkey, label) => {
-    const list = decksFor(f[key], dkey);
-    if (f[dkey] && !list.some((x) => x.id === f[dkey])) f[dkey] = '';
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  // All active decks: the player's own first, then (after a divider) everyone else's.
+  // When editing, inactive decks are offered too, and the match's current deck is always kept.
+  const deckGroups = (pid, dkey) => {
+    const pool = state.data.decks.filter((x) => edit || x.active);
+    const cur = state.data.deckById.get(f[dkey]);
+    if (cur && !pool.includes(cur)) pool.push(cur);
+    const own = pool.filter((x) => x.playerIds.includes(pid)).sort(byName);
+    const others = pool.filter((x) => !x.playerIds.includes(pid)).sort(byName);
+    return { own, others };
+  };
+  const deckOpt = (x, dkey) => `<option value="${esc(x.id)}"${x.id === f[dkey] ? ' selected' : ''}>${esc(x.name)} · ${x.colors.join('') || 'C'}${x.active ? '' : t('inactive_suffix')}</option>`;
+  const stepper = (key, label) => `<div class="stepper">
+      <span class="st-label">${esc(label)}</span>
+      <div class="st-ctrl">
+        <button type="button" data-step="${key}" data-d="-1" aria-label="${esc(label)} −1">−</button>
+        <input type="number" inputmode="numeric" min="0" max="9" data-f="${key}" value="${f[key] ?? 0}" aria-label="${esc(label)}">
+        <button type="button" data-step="${key}" data-d="1" aria-label="${esc(label)} +1">+</button>
+      </div>
+    </div>`;
+  const sideBox = (key, dkey, wkey, mkey, label) => {
+    const g = deckGroups(f[key], dkey);
     return `<div class="side-box">
-      <label class="field"><span class="label">${label}</span>
-        <select class="select" data-f="${key}">${players.map((p) => `<option value="${esc(p.id)}"${p.id === f[key] ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
-      <label class="field"><span class="label"><span>${t('deck')}</span><button type="button" class="link-btn" data-new-deck="${key}">${t('plus_new_deck')}</button></span>
-        <select class="select" data-f="${dkey}"><option value="">${t('choose_deck')}</option>${list.map((x) => `<option value="${esc(x.id)}"${x.id === f[dkey] ? ' selected' : ''}>${esc(x.name)} · ${x.colors.join('') || 'C'}${x.active ? '' : t('inactive_suffix')}</option>`).join('')}</select></label>
-      ${!list.length ? `<p class="hint">${t(edit ? 'no_decks_for' : 'no_active_decks_for', { name: esc(pName(f[key])) })}</p>` : ''}
+      <div class="pd-row">
+        <label class="field"><span class="label">${label}</span>
+          <select class="select" data-f="${key}">${players.map((p) => `<option value="${esc(p.id)}"${p.id === f[key] ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+        <label class="field"><span class="label">${t('deck')}</span>
+          <select class="select" data-f="${dkey}"><option value="">${t('choose_deck')}</option>
+            ${g.own.length ? `<optgroup label="${esc(pName(f[key]))}">${g.own.map((x) => deckOpt(x, dkey)).join('')}</optgroup>` : ''}
+            ${g.others.length ? `<optgroup label="${t('other_decks')}">${g.others.map((x) => deckOpt(x, dkey)).join('')}</optgroup>` : ''}
+          </select></label>
+      </div>
+      <div class="wm-row">${stepper(wkey, t('wins_label'))}${stepper(mkey, t('mulligans'))}</div>
     </div>`;
   };
-  const results = [[2, 0], [2, 1], [1, 2], [0, 2]];
-  const deDate = (iso) => { const [y, m, d] = String(iso).split('-'); return d && m && y ? `${d}.${m}.${y}` : '—'; };
-  const quickOn = (a, b) => !f.custom && f.ga === a && f.gb === b && !f.gd;
-  const numBox = (key, label) => `<input class="num-box" type="number" inputmode="numeric" min="0" max="9" data-f="${key}" value="${f[key] ?? ''}" placeholder="0" aria-label="${esc(label)}">`;
-  const clampGames = (v) => (v === '' || v == null || isNaN(v) ? null : Math.max(0, Math.min(9, Math.round(Number(v)))));
+  const deDate = (iso) => { const [y, m, dd] = String(iso).split('-'); return dd && m && y ? `${dd}.${m}.${y}` : '—'; };
+  const clamp = (v) => (v === '' || v == null || isNaN(v) ? 0 : Math.max(0, Math.min(9, Math.round(Number(v)))));
+  const total = () => (f.ga || 0) + (f.gb || 0) + (f.gd || 0);
   const s = openSheet({
     title: edit ? t('edit_match') : t('new_match'),
     foot: edit
@@ -1017,20 +1030,11 @@ function openMatchForm(edit) {
           <input type="date" data-f="date" value="${f.date}" max="${isoDate(new Date())}" aria-label="${t('date')}">
         </div>
       </div>
-      ${sideBox('pa', 'da', t('player1'))}
+      ${sideBox('pa', 'da', 'ga', 'ma', t('player1'))}
       <div class="vs">${t('vs')}</div>
-      ${sideBox('pb', 'db', t('player2'))}
-      <label class="switch" style="margin-bottom:14px"><span class="small">${t(edit ? 'show_all_decks_edit' : 'show_all_decks')}</span><input type="checkbox" data-f="allDecks" ${f.allDecks ? 'checked' : ''}></label>
-      <div class="field"><span class="label">${t('result')}</span>
-        <div class="result-grid">${results.map(([a, b]) => `<button type="button" data-result="${a}-${b}" class="${quickOn(a, b) ? 'on' : ''}"><b>${a}–${b}</b><span>${t('wins', { name: esc(pName(a > b ? f.pa : f.pb)) })}</span></button>`).join('')}</div>
-        ${f.custom ? `
-        <div class="custom-result">
-          <div class="cr-row">
-            <span class="cr-name">${esc(pName(f.pa))}</span>${numBox('ga', t('games_won_aria', { name: pName(f.pa) }))}<span class="cr-sep">–</span>${numBox('gb', t('games_won_aria', { name: pName(f.pb) }))}<span class="cr-name right">${esc(pName(f.pb))}</span>
-          </div>
-          <div class="cr-row draws"><span class="cr-name">${t('drawn_games')}</span>${numBox('gd', t('drawn_games'))}<button type="button" class="link-btn" data-custom="off">${t('cancel')}</button></div>
-        </div>` : `<button type="button" class="link-btn other-result" data-custom="on">${t('other_result')}</button>`}
-        ${f.ga != null && f.gb != null && f.ga + f.gb + (f.gd || 0) > 0 ? `<p class="hint" style="margin:8px 0 0">${f.ga === f.gb ? t('match_draw') : t('wins_match', { name: esc(pName(f.ga > f.gb ? f.pa : f.pb)) })}${f.gd ? ` · ${t('drawn_games_n', f.gd)}` : ''}</p>` : ''}
+      ${sideBox('pb', 'db', 'gb', 'mb', t('player2'))}
+      <div class="draws-row">${stepper('gd', t('draws_label'))}
+        <p class="hint">${total() ? (f.ga === f.gb ? t('match_draw') : t('wins_match', { name: esc(pName(f.ga > f.gb ? f.pa : f.pb)) })) : t('enter_wins')}</p>
       </div>
       <div class="field"><span class="label">${t('on_play_label')} <span class="faint" style="font-weight:500">${t('optional')}</span></span>
         <div class="segmented">${[['', t('unknown')], ['a', pName(f.pa)], ['b', pName(f.pb)]].map(([v, l]) => `<button type="button" data-onplay="${v}" class="${f.onPlay === v ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>
@@ -1040,10 +1044,10 @@ function openMatchForm(edit) {
   });
   s.el.addEventListener('change', (e) => {
     const k = e.target.dataset.f; if (!k) return;
-    if (k === 'ga' || k === 'gb' || k === 'gd') { f[k] = clampGames(e.target.value); if (k === 'gd' && f.gd == null) f.gd = 0; s.refresh(); return; }
+    if (['ga', 'gb', 'gd', 'ma', 'mb'].includes(k)) { f[k] = clamp(e.target.value); s.refresh(); return; }
     if (k === 'date') { if (e.target.value) f.date = e.target.value; s.refresh(); return; }
-    f[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
-    if (k === 'pa' || k === 'pb' || k === 'allDecks') s.refresh();
+    f[k] = e.target.value;
+    if (k === 'pa' || k === 'pb') s.refresh();
   });
   s.el.addEventListener('input', (e) => { if (e.target.dataset.f === 'notes') f.notes = e.target.value; });
   s.el.addEventListener('click', async (e) => {
@@ -1051,26 +1055,12 @@ function openMatchForm(edit) {
       f.confirmDelete = false;
       const db = s.el.querySelector('[data-delete]'); if (db) { db.textContent = t('delete'); db.classList.remove('confirm'); }
     }
-    const r = e.target.closest('[data-result]');
-    if (r) { [f.ga, f.gb] = r.dataset.result.split('-').map(Number); f.gd = 0; f.custom = false; s.refresh(); return; }
-    const cu = e.target.closest('[data-custom]');
-    if (cu) {
-      if (cu.dataset.custom === 'on') { f.custom = true; if (f.ga == null) f.ga = 1; if (f.gb == null) f.gb = 0; }
-      else { f.custom = false; f.ga = null; f.gb = null; f.gd = 0; }
-      s.refresh(); return;
-    }
     const di = e.target.closest('.date-field input');
     if (di && di.showPicker && window.matchMedia('(pointer: fine)').matches) { try { di.showPicker(); } catch (x) { /* ignore */ } return; }
     const st = e.target.closest('[data-step]');
-    if (st) { const k = st.dataset.step; f[k] = clampGames((f[k] || 0) + Number(st.dataset.d)); if (k !== 'gd' && f[k] === 0 && Number(st.dataset.d) < 0) f[k] = 0; s.refresh(); return; }
+    if (st) { const k = st.dataset.step; f[k] = clamp((f[k] || 0) + Number(st.dataset.d)); s.refresh(); return; }
     const op = e.target.closest('[data-onplay]');
     if (op) { f.onPlay = op.dataset.onplay; s.refresh(); return; }
-    const nd = e.target.closest('[data-new-deck]');
-    if (nd) {
-      const side = nd.dataset.newDeck;
-      openDeckEditor(null, { playerId: f[side], onSaved: (deck) => { f[side === 'pa' ? 'da' : 'db'] = deck.id; s.refresh(); } });
-      return;
-    }
     const del = e.target.closest('[data-delete]');
     if (del && edit) {
       if (!f.confirmDelete) { f.confirmDelete = true; del.textContent = t('confirm_delete'); del.classList.add('confirm'); return; }
@@ -1091,23 +1081,21 @@ function openMatchForm(edit) {
     else if (!f.pa || !f.pb) f.err = t('e_players');
     else if (f.pa === f.pb) f.err = t('e_diff');
     else if (!f.da || !f.db) f.err = t('e_decks');
-    else if (f.ga == null || f.gb == null) f.err = t('e_games');
-    else if (f.ga + f.gb + (f.gd || 0) === 0) f.err = t('e_one');
+    else if (total() === 0) f.err = t('e_one');
     if (f.err) { s.refresh(); s.body.scrollTop = s.body.scrollHeight; return; }
     busy(save, true);
     try {
       const D = state.data;
-      const ga = f.ga, gb = f.gb, gd = f.gd || 0;
       const deck = (id) => D.deckById.get(id);
       const data = {
         date: f.date,
         playerA: pName(f.pa), deckA: deck(f.da).name,
         playerB: pName(f.pb), deckB: deck(f.db).name,
         onPlay: f.onPlay === 'a' ? pName(f.pa) : f.onPlay === 'b' ? pName(f.pb) : '',
-        gamesA: ga, gamesB: gb, notes: f.notes.trim(),
+        gamesA: f.ga, gamesB: f.gb, mulligansA: f.ma, mulligansB: f.mb, notes: f.notes.trim(),
       };
-      if (edit) { if (gd || edit.gd) data.draws = gd || ''; await callScript('updateMatch', { id: edit.id, data }); }
-      else { if (gd) data.draws = gd; await callScript('addMatch', { data }); }
+      if (edit) { if (f.gd || edit.gd) data.draws = f.gd || ''; await callScript('updateMatch', { id: edit.id, data }); }
+      else { if (f.gd) data.draws = f.gd; await callScript('addMatch', { data }); }
       s.close();
       toast(edit ? t('match_updated') : t('match_saved'));
       await load();
