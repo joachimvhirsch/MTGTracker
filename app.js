@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261028b';
+const APP_VERSION = '20261118a';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -34,11 +34,12 @@ function t(key, vars) {
 const cn = (c) => t('color_' + c);
 function applyStaticTexts() {
   document.documentElement.lang = LANG;
-  $$('#tabbar a').forEach((a) => { const sp = a.querySelector('span'); if (sp) sp.textContent = t('tab_' + a.dataset.tab); });
+  tabsRendered = '';
+  const mb = $('#btn-menu'); if (mb) mb.setAttribute('aria-label', t('menu'));
   const st = $('#btn-settings'); if (st) st.setAttribute('aria-label', t('settings'));
   const ad = $('#btn-add'); if (ad) ad.setAttribute('aria-label', t('add_match'));
 }
-const TABS = { players: 'Players', decks: 'Decks', matches: 'Matches', config: 'Config' };
+const TABS = { players: 'Players', decks: 'Decks', matches: 'Matches', config: 'Config', tournaments: 'Tournaments', tPlayers: 'TournamentPlayers', tMatches: 'TournamentMatches' };
 const COLORS = ['W', 'U', 'B', 'R', 'G'];
 
 /* ------------------------------------------------------------------ utils */
@@ -191,7 +192,13 @@ async function fetchViaPublic(id) {
     get(TABS.matches, ['playera', 'playerb', 'gamesa', 'gamesb']),
     get(TABS.config, ['key', 'value']).catch(() => [['key', 'value']]), // optional tab
   ]);
-  return { players, decks, matches, config, title: '' };
+  // Sealed tabs are optional: they appear once the first tournament is saved.
+  const [tournaments, tplayers, tmatches] = await Promise.all([
+    get(TABS.tournaments, ['id', 'status']).catch(() => [[]]),
+    get(TABS.tPlayers, ['tournamentid', 'player']).catch(() => [[]]),
+    get(TABS.tMatches, ['tournamentid', 'round']).catch(() => [[]]),
+  ]);
+  return { players, decks, matches, config, tournaments, tplayers, tmatches, title: '' };
 }
 
 /* ------------------------------------------------------------------ model */
@@ -266,13 +273,15 @@ function buildModel(raw) {
   const config = {};
   (raw.config || []).slice(1).forEach((r) => { if (r && r[0]) config[norm(r[0])] = String(r[1] ?? '').trim(); });
 
-  return {
+  const model = {
     title: config.title || '', config,
     players, decks, matches, deckById, playerByRef, dateStyle,
     headers: { players: P.header, decks: D.header, matches: M.header },
     playerCol,
     allTags: [...new Set(decks.flatMap((d) => d.tags.map((t) => t.toLowerCase())))].sort(),
   };
+  if (typeof buildSealed === 'function') model.sealed = buildSealed(raw, model);
+  return model;
 }
 
 /** Both sides of a match from each side's perspective. */
@@ -371,9 +380,36 @@ function setSheet(input) {
 }
 
 /* ------------------------------------------------------------------ routing & render */
+const MODE_HOME = { duel: '#/home', sealed: '#/sealed/stats', multi: '#/multi' };
 function route() {
-  const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
-  return { name: name || 'home', arg: arg ? decodeURIComponent(arg) : '' };
+  const parts = location.hash.replace(/^#\/?/, '').split('/').map((x) => decodeURIComponent(x || ''));
+  const name = parts[0] || 'home';
+  const mode = name === 'sealed' ? 'sealed' : name === 'multi' ? 'multi' : 'duel';
+  return { name, arg: parts[1] || '', arg2: parts[2] || '', mode };
+}
+/* Tabs per mode: [key, href, icon, label key] */
+const TAB_ICONS = {
+  stats: '<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  list: '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+  swords: '<svg viewBox="0 0 24 24"><path d="M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"/><path d="M9.5 17.5L21 6V3h-3L6.5 14.5M11 19l-6-6M8 16l-4 4M5 21l-2-2"/></svg>',
+  trophy: '<svg viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>',
+};
+const MODE_TABS = {
+  duel: [['home', '#/home', 'stats', 'tab_home'], ['table', '#/table', 'list', 'tab_table'], ['matches', '#/matches', 'swords', 'tab_matches']],
+  sealed: [['stats', '#/sealed/stats', 'stats', 'tab_stats'], ['table', '#/sealed/table', 'list', 'tab_table'], ['tournaments', '#/sealed/tournaments', 'trophy', 'tab_tournaments']],
+  multi: [],
+};
+let tabsRendered = '';
+function renderTabs(mode, active) {
+  const key = mode + '|' + LANG;
+  const nav = $('#tabbar');
+  if (tabsRendered !== key) {
+    nav.innerHTML = MODE_TABS[mode].map(([k, href, ic, lbl]) => `<a href="${href}" data-tab="${k}">${TAB_ICONS[ic]}<span>${t(lbl)}</span></a>`).join('')
+      || `<span class="mode-title">${t('mode_multi')}</span>`;
+    nav.style.gridTemplateColumns = `repeat(${Math.max(1, MODE_TABS[mode].length)}, 1fr)`;
+    tabsRendered = key;
+  }
+  $$('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === active));
 }
 
 const VIEWS = { home: viewHome, table: viewTable, matches: viewMatches, decks: viewTable, deck: viewDeck };
@@ -386,8 +422,11 @@ function render() {
   const ae = document.activeElement;
   const focusModel = ae && ae.dataset && ae.dataset.model && view.contains(ae) ? { m: ae.dataset.model, s: ae.selectionStart } : null;
 
-  const tabName = r.name === 'deck' || r.name === 'decks' ? 'table' : r.name;
-  $$('#tabbar a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tabName));
+  store.set('mode', r.mode);
+  document.body.dataset.mode = r.mode;
+  const tabName = r.mode === 'sealed' ? (r.arg === 't' ? 'tournaments' : r.arg || 'stats')
+    : r.name === 'deck' || r.name === 'decks' ? 'table' : r.name;
+  renderTabs(r.mode, tabName);
   document.body.classList.toggle('no-chrome', !state.sheetId || (!state.data && !state.loading));
 
   const d = state.data;
@@ -396,6 +435,8 @@ function render() {
   if (!state.sheetId) html = hasLockedSheet() && !state.manualEntry ? viewUnlock() : viewOnboarding();
   else if (!d && state.loading) html = '<div class="skeleton" style="height:70px"></div><div class="skeleton"></div><div class="skeleton" style="height:180px"></div><div class="skeleton" style="height:140px"></div>';
   else if (!d) html = viewLoadError();
+  else if (r.mode === 'sealed' && typeof SEALED_VIEWS !== 'undefined') html = (SEALED_VIEWS[r.arg] || SEALED_VIEWS.stats)(r.arg2);
+  else if (r.mode === 'multi') html = `<div class="empty"><h2>${t('mode_multi')}</h2><p>${t('multi_soon')}</p></div>`;
   else html = (VIEWS[r.name] || viewHome)(r.arg);
   view.innerHTML = html;
 
@@ -411,6 +452,7 @@ const ICON = {
   edit: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
   plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
   close: '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+  clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>',
   // a stack of cards with a small "+" on the front card
   deck: '<svg viewBox="0 0 24 24"><path d="M9 4.5V4a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-.5"/><path d="M6.5 7.5V7a2 2 0 0 1 2-2h6.5a2 2 0 0 1 2 2v.5"/><rect x="4" y="8" width="13" height="14" rx="2"/><path d="M10.5 12.5v5M8 15h5"/></svg>',
 };
@@ -1183,7 +1225,7 @@ function openDeckEditor(deckId, opts = {}) {
   s.el.addEventListener('change', (e) => {
     const k = e.target.dataset.f;
     if (k === 'active') f.active = e.target.checked;
-    if (k === 'tags') s.refresh();
+    // (no redraw on tag changes: it would swallow the next tap on a chip)
   });
   s.el.addEventListener('click', async (e) => {
     const c = e.target.closest('[data-color]');
@@ -1269,6 +1311,7 @@ document.addEventListener('click', async (e) => {
     else if (a === 'manual-sheet') { state.manualEntry = true; render(); }
     else if (a === 'password-entry') { state.manualEntry = false; render(); }
     else if (a === 'edit-deck') openDeckEditor(act.dataset.id);
+    else if (typeof sealedAct === 'function') sealedAct(a, act);
     return;
   }
   const em = e.target.closest('[data-edit-match]');
@@ -1310,7 +1353,27 @@ document.addEventListener('submit', (e) => {
 });
 
 $('#btn-settings').addEventListener('click', openSettings);
-$('#btn-add').addEventListener('click', () => openMatchForm());
+$('#btn-add').addEventListener('click', () => {
+  const m = route().mode;
+  if (m === 'sealed' && typeof openTournamentForm === 'function') openTournamentForm();
+  else if (m === 'duel') openMatchForm();
+});
+$('#btn-menu').addEventListener('click', openModeMenu);
+function openModeMenu() {
+  const cur = route().mode;
+  const s = openSheet({
+    title: () => t('mode_title'),
+    render: () => `<div class="mode-list">${[['duel', 'swords'], ['multi', 'stats'], ['sealed', 'trophy']].map(([m, ic]) => `
+      <button class="mode-item${m === cur ? ' on' : ''}" data-mode="${m}">${TAB_ICONS[ic]}
+        <span><b>${t('mode_' + m)}</b><small>${t('mode_' + m + '_sub')}</small></span></button>`).join('')}</div>`,
+  });
+  s.el.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mode]');
+    if (!b) return;
+    s.close();
+    location.hash = MODE_HOME[b.dataset.mode];
+  });
+}
 // Refresh data automatically when the app comes back to the foreground (no refresh button needed).
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state.data && !state.loading && Date.now() - state.loadedAt > 60000) load();
@@ -1348,7 +1411,9 @@ function setLanguage(v) {
 applyTheme();
 applyStaticTexts();
 probeIcons();
+if (typeof initSealed === 'function') initSealed();
 (function boot() {
+  if (!location.hash && store.get('mode', 'duel') !== 'duel') location.replace(MODE_HOME[store.get('mode', 'duel')] || '#/home');
   const cache = store.get('cache', null);
   if (state.sheetId && cache && cache.id === state.sheetId) {
     try { state.data = buildModel(cache.raw); state.config = state.data.config; state.loadedAt = cache.at; } catch (e) { /* ignore bad cache */ }
