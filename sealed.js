@@ -17,7 +17,7 @@ function buildSealed(raw) {
   const T = table(raw.tournaments || [[]]), TP = table(raw.tplayers || [[]]), TM = table(raw.tmatches || [[]]);
   const num = (v) => { const n = parseInt(v, 10); return isNaN(n) ? null : n; };
   const tournaments = T.items.filter((x) => x.id).map((x) => ({
-    id: x.id, name: x.name || x.id, date: parseDate(x.date), dateRaw: x.date || '',
+    id: x.id, name: x.setname || x.name || 'Sealed', date: parseDate(x.date), dateRaw: x.date || '',
     setCode: x.setcode || '', setName: x.setname || '', setIcon: x.seticon || '',
     status: norm(x.status) === 'finished' ? 'finished' : 'running',
     roundMinutes: num(x.roundminutes) || SEALED_DEFAULT_MINUTES,
@@ -340,7 +340,7 @@ function viewSealedTournaments() {
     return `<a class="list-item tap" href="#/sealed/t/${encodeURIComponent(tn.id)}">
       ${setIcon(tn)}
       <div class="li-main"><div class="li-title">${esc(tn.name)}</div>
-        <div class="li-sub"><span>${esc(tn.setName || '')}</span><span>${tDate(tn)}</span><span>${t('players_n', tn.players.length)}</span></div></div>
+        <div class="li-sub">${tn.setCode ? `<span>${esc(tn.setCode)}</span>` : ''}<span>${tDate(tn)}</span><span>${t('players_n', tn.players.length)}</span></div></div>
       <div class="li-end">${status}</div>${ICON.chev}
     </a>`;
   }).join('')}</div>`;
@@ -417,7 +417,7 @@ function viewTournament(id) {
     <div class="t-hero">${setIcon(tn, 'lg')}
       <div><h2>${esc(tn.name)}</h2>
         <div class="meta"><span class="badge ${running ? 'running' : 'inactive'}">${running ? t('t_running') : t('t_finished')}</span>
-          <span>${esc(tn.setName || '')}${tn.setCode ? ` (${esc(tn.setCode)})` : ''}</span><span>${tDate(tn)}</span></div></div></div>
+          ${tn.setCode ? `<span>${esc(tn.setCode)}</span>` : ''}<span>${tDate(tn)}</span></div></div></div>
     ${roundCard}
     ${standingsCard}
     ${pastRounds.length ? `<div class="section-title">${t('rounds_history')}</div>${pastRounds.join('')}` : ''}
@@ -553,12 +553,11 @@ async function loadSets() {
 function openTournamentForm() {
   if (!state.data) { toast(t('load_first'), true); return; }
   const today = isoDate(new Date());
-  const f = { name: '', date: today, set: null, setText: '', q: '', players: [], newName: '', minutes: SEALED_DEFAULT_MINUTES, err: '' };
+  const f = { date: today, set: null, setText: '', q: '', players: [], newName: '', minutes: SEALED_DEFAULT_MINUTES, err: '' };
   let sets = null, setsErr = false;
   loadSets().then((l) => { sets = l; s.refresh(); }).catch(() => { setsErr = true; s.refresh(); });
   const known = () => [...new Set([...realPlayers().map((p) => p.name), ...f.players])];
   const deDate = (iso) => { const [y, m, d] = iso.split('-'); return `${d}.${m}.${y}`; };
-  const autoName = () => `${(f.set && f.set.name) || f.setText || 'Sealed'} · ${deDate(f.date)}`;
   const s = openSheet({
     title: () => t('new_tournament'),
     foot: `<button class="btn" data-close>${t('cancel')}</button><button class="btn primary" data-save>${t('create_tournament')}</button>`,
@@ -573,13 +572,12 @@ function openTournamentForm() {
              <div class="set-list">${!sets ? `<p class="small faint">${t('sets_loading')}</p>` : hits.map((x) => `<button type="button" class="set-hit" data-set="${esc(x.code)}"><span class="set-icon"><img src="${esc(x.icon)}" alt="" loading="lazy"></span><span class="grow">${esc(x.name)}</span><span class="small faint">${esc(x.code)} · ${esc(x.date.slice(0, 4))}</span></button>`).join('') || `<p class="small faint">${t('nothing_matches')}</p>`}</div>`}
       </div>
       <div class="date-draws">
-        <label class="field"><span class="label">${t('t_name')}</span><input class="input" data-f="name" value="${esc(f.name)}" placeholder="${esc(autoName())}"></label>
+        <div class="field"><span class="label">${t('date')}</span>
+          <div class="date-field"><span class="input date-display">${deDate(f.date)}</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+            <input type="date" data-f="date" value="${f.date}" aria-label="${t('date')}"></div></div>
         <label class="field"><span class="label">${t('round_minutes')}</span><input class="input" style="width:86px" type="number" inputmode="numeric" min="5" max="180" data-f="minutes" value="${f.minutes}"></label>
       </div>
-      <div class="field"><span class="label">${t('date')}</span>
-        <div class="date-field"><span class="input date-display">${deDate(f.date)}</span>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
-          <input type="date" data-f="date" value="${f.date}" aria-label="${t('date')}"></div></div>
       <div class="field"><span class="label"><span>${t('t_players')}</span><span class="faint" style="font-weight:500">${t('selected_n', { n: f.players.length })}</span></span>
         <div class="chips wrap">${known().map((n) => `<button type="button" class="chip${f.players.includes(n) ? ' on' : ''}" data-pl="${esc(n)}">${esc(n)}</button>`).join('')}</div>
         <div class="row" style="margin-top:8px"><input class="input grow" data-f="newName" value="${esc(f.newName)}" placeholder="${t('add_player_ph')}" autocomplete="off"><button type="button" class="btn" data-addpl>${t('add')}</button></div>
@@ -592,13 +590,12 @@ function openTournamentForm() {
   s.el.addEventListener('input', (e) => {
     const k = e.target.dataset.f;
     if (k === 'q') { f.q = e.target.value; const pos = e.target.selectionStart; s.refresh(); const el = s.el.querySelector('[data-f="q"]'); if (el) { el.focus(); el.setSelectionRange(pos, pos); } }
-    else if (k === 'name' || k === 'newName' || k === 'setText') f[k] = e.target.value;
+    else if (k === 'newName' || k === 'setText') f[k] = e.target.value;
   });
   s.el.addEventListener('change', (e) => {
     const k = e.target.dataset.f;
     if (k === 'date' && e.target.value) { f.date = e.target.value; s.refresh(); }
     if (k === 'minutes') f.minutes = Math.max(5, Math.min(180, parseInt(e.target.value, 10) || SEALED_DEFAULT_MINUTES));
-    if (k === 'setText') { const nm = s.el.querySelector('[data-f="name"]'); if (nm) nm.placeholder = autoName(); } // no redraw: it would swallow the next tap
   });
   const addNew = () => {
     const n = f.newName.trim();
@@ -613,7 +610,7 @@ function openTournamentForm() {
     const di = e.target.closest('.date-field input');
     if (di && di.showPicker && window.matchMedia('(pointer: fine)').matches) { try { di.showPicker(); } catch (x) { /* ignore */ } return; }
     const sb = e.target.closest('[data-set]');
-    if (sb) { f.set = sets.find((x) => x.code === sb.dataset.set) || null; s.refresh(); return; }
+    if (sb) { f.set = sets.find((x) => x.code === sb.dataset.set) || null; f.err = ''; s.refresh(); return; }
     if (e.target.closest('[data-unset]')) { f.set = null; s.refresh(); return; }
     const pl = e.target.closest('[data-pl]');
     if (pl) { const n = pl.dataset.pl; f.players = f.players.includes(n) ? f.players.filter((x) => x !== n) : [...f.players, n]; s.refresh(); return; }
@@ -621,7 +618,8 @@ function openTournamentForm() {
     const save = e.target.closest('[data-save]');
     if (!save) return;
     f.err = '';
-    if (f.players.length < 2) f.err = t('e_two_players');
+    if (!f.set && !f.setText.trim()) f.err = t('e_set');
+    else if (f.players.length < 2) f.err = t('e_two_players');
     if (f.err) { s.refresh(); s.body.scrollTop = s.body.scrollHeight; return; }
     busy(save, true, t('saving'));
     try {
@@ -629,7 +627,7 @@ function openTournamentForm() {
       for (const n of f.players) if (!existing.has(norm(n))) await callScript('addPlayer', { name: n });
       const out = await callScript('addTournament', {
         data: {
-          name: f.name.trim() || autoName(), date: f.date, roundMinutes: f.minutes, status: 'running',
+          name: f.set ? f.set.name : f.setText.trim(), date: f.date, roundMinutes: f.minutes, status: 'running',
           setCode: f.set ? f.set.code : '', setName: f.set ? f.set.name : f.setText.trim(), setIcon: f.set ? f.set.icon : '',
         },
         players: f.players.map((n) => ({ player: n, colors: '' })),

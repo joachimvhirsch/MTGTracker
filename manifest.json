@@ -2,7 +2,7 @@
   "id": "./",
   "name": "MTG Tracker",
   "short_name": "MTG Tracker",
-  "description": "Magic: the Gathering league tracker",
+  "description": "Magic: the Gathering match statistics",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

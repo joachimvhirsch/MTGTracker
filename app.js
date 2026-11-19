@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261118a';
+const APP_VERSION = '20261119b';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
