@@ -148,7 +148,7 @@ window.I18N = {
 
     // modes & sealed
     menu: 'Menu', mode_title: 'Mode', mode_duel: 'Duel', mode_multi: 'Multiplayer', mode_sealed: 'Sealed',
-    mode_duel_sub: '1-on-1 matches with your constructed decks', mode_multi_sub: 'Coming soon', mode_sealed_sub: 'Your own mini tournaments (Swiss system)',
+    mode_duel_sub: '1-on-1 matches with your constructed decks', mode_multi_sub: 'Single games with 3 or more players', mode_sealed_sub: 'Your own mini tournaments (Swiss system)',
     multi_soon: 'Coming soon. This mode will track multiplayer games.',
     tab_stats: 'Statistics', tab_tournaments: 'Tournaments',
     kpi_tournaments: 'Tournaments', kpi_last_tournament: 'Last tournament',
@@ -180,6 +180,19 @@ window.I18N = {
     player_not_found: 'Player not found', no_titles: 'No tournament wins yet.', player_titles_sub: 'Sets of the tournaments won',
     titles_n: (n) => `${n} ${n === 1 ? 'win' : 'wins'}`, kpi_avg_place: 'Ø place', best_place: 'best: {n}.',
     player_colors_sub: 'Tournaments played with each color', e_set: 'Pick the set you\'re playing.',
+
+    // Multiplayer
+    tab_games: 'Games', new_game: 'New game', edit_game: 'Edit game', save_game: 'Save game', add_player_row: 'Add player',
+    player_n: 'Player {n}', remove: 'Remove', winner: 'Winner', draw_game: 'Draw',
+    kpi_games_mp: 'Games', kpi_last_game: 'Last game', draws_n_mp: (n) => `${n} ${n === 1 ? 'draw' : 'draws'}`,
+    avg_table: 'Ø {n} per game', games_n_mp: (n) => `${n} ${n === 1 ? 'game' : 'games'}`, wins_of: '{w} of {g} won', wins_short: '{w} W',
+    col_g: 'G', mp_player_wr_sub: 'Share of games won', mp_wr_sub: 'Share of games won', mp_colors_sub_played: 'Games played with decks of each color',
+    mp_types_sub_played: 'Games played per deck type', no_games_mp: 'No games yet', no_games_mp_sub: 'Tap + to add your first multiplayer game.',
+    no_games_deck_sub: 'This deck hasn\'t played a multiplayer game yet.', tap_game_edit: 'Tap a game to edit',
+    n_players: '{n} players', per_game: 'per game', by_table_size: 'Win rate by number of players', by_pilot: 'Win rate by player',
+    game_history: 'Games', e_all_players: 'Pick a player in every row.', e_players_unique: 'Each player can only be in the game once.',
+    e_all_decks: 'Pick a deck for every player.', e_winner: 'Pick who won, or Draw.',
+    game_saved: 'Game saved', game_updated: 'Game updated', game_deleted: 'Game deleted',
   },
 
   de: {
@@ -326,7 +339,7 @@ window.I18N = {
     deck_updated: 'Deck aktualisiert', deck_added: 'Deck hinzugefügt',
     // Modi & Sealed
     menu: 'Menü', mode_title: 'Modus', mode_duel: 'Duell', mode_multi: 'Multiplayer', mode_sealed: 'Sealed',
-    mode_duel_sub: '1-gegen-1-Matches mit euren Constructed-Decks', mode_multi_sub: 'Kommt bald', mode_sealed_sub: 'Eure eigenen Mini-Turniere (Schweizer System)',
+    mode_duel_sub: '1-gegen-1-Matches mit euren Constructed-Decks', mode_multi_sub: 'Einzelne Spiele mit 3 oder mehr Spielern', mode_sealed_sub: 'Eure eigenen Mini-Turniere (Schweizer System)',
     multi_soon: 'Kommt bald. Dieser Modus wird Multiplayer-Spiele erfassen.',
     tab_stats: 'Statistik', tab_tournaments: 'Turniere',
     kpi_tournaments: 'Turniere', kpi_last_tournament: 'Letztes Turnier',
@@ -358,5 +371,18 @@ window.I18N = {
     player_not_found: 'Spieler nicht gefunden', no_titles: 'Noch keine Turniersiege.', player_titles_sub: 'Sets der gewonnenen Turniere',
     titles_n: (n) => `${n} ${n === 1 ? 'Sieg' : 'Siege'}`, kpi_avg_place: 'Ø Platz', best_place: 'beste: {n}.',
     player_colors_sub: 'Gespielte Turniere je Farbe', e_set: 'Wähle das Set, das ihr spielt.',
+
+    // Multiplayer
+    tab_games: 'Spiele', new_game: 'Neues Spiel', edit_game: 'Spiel bearbeiten', save_game: 'Spiel speichern', add_player_row: 'Spieler hinzufügen',
+    player_n: 'Spieler {n}', remove: 'Entfernen', winner: 'Gewinner', draw_game: 'Unentschieden',
+    kpi_games_mp: 'Spiele', kpi_last_game: 'Letztes Spiel', draws_n_mp: (n) => `${n} Unentschieden`,
+    avg_table: 'Ø {n} pro Spiel', games_n_mp: (n) => `${n} ${n === 1 ? 'Spiel' : 'Spiele'}`, wins_of: '{w} von {g} gewonnen', wins_short: '{w} S',
+    col_g: 'Sp.', mp_player_wr_sub: 'Anteil gewonnener Spiele', mp_wr_sub: 'Anteil gewonnener Spiele', mp_colors_sub_played: 'Gespielte Spiele mit Decks der jeweiligen Farbe',
+    mp_types_sub_played: 'Gespielte Spiele je Decktyp', no_games_mp: 'Noch keine Spiele', no_games_mp_sub: 'Tippe auf +, um dein erstes Multiplayer-Spiel einzutragen.',
+    no_games_deck_sub: 'Dieses Deck hat noch kein Multiplayer-Spiel gespielt.', tap_game_edit: 'Tippe auf ein Spiel, um es zu bearbeiten',
+    n_players: '{n} Spieler', per_game: 'pro Spiel', by_table_size: 'Winrate nach Spieleranzahl', by_pilot: 'Winrate nach Spieler',
+    game_history: 'Spiele', e_all_players: 'Wähle in jeder Zeile einen Spieler.', e_players_unique: 'Jeder Spieler kann nur einmal mitspielen.',
+    e_all_decks: 'Wähle für jeden Spieler ein Deck.', e_winner: 'Wähle den Gewinner oder Unentschieden.',
+    game_saved: 'Spiel gespeichert', game_updated: 'Spiel aktualisiert', game_deleted: 'Spiel gelöscht',
   },
 };

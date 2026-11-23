@@ -1,6 +1,6 @@
 # MTG Tracker — setup
 
-A mobile web app (plain HTML/JS, no build step) for your Magic league sheet.
+A mobile web app (plain HTML/JS, no build step) for your Magic sheet.
 No Google Cloud project, no OAuth Client ID and no sign-in needed.
 
 - **Reading:** the app reads the sheet directly. The sheet must be shared as *Anyone with the link → Viewer*.
@@ -15,6 +15,8 @@ No Google Cloud project, no OAuth Client ID and no sign-in needed.
 | `config.js` | Optional: pre-fill the sheet link for everyone |
 | `manifest.json`, `sw.js`, `icon*.png`, `apple-touch-icon.png`, `icon.svg` | Install-as-app support |
 | `icons/` | Optional: your own color icons (see below) |
+| `i18n.js` | All texts in English and German — edit wording here |
+| `sealed.js` | Sealed mode (tournaments, Swiss pairing, round timer) |
 
 ## 1. Share the sheet
 Google Sheets → **Share** → General access → **Anyone with the link** → *Viewer*.
@@ -34,7 +36,7 @@ Google Sheets → **Share** → General access → **Anyone with the link** → 
 3. The app is live at `https://<your-user>.github.io/mtg-tracker/` after a minute.
    Any static host works (Netlify, Cloudflare Pages, …).
 
-Recommended: lock the sheet link with a league password (see **Password-locked sheet link** below),
+Recommended: lock the sheet link with a password (see **Password-locked sheet link** below),
 so players never have to type the link.
 
 ## 4. Connect saving
@@ -50,7 +52,7 @@ Then, once:
    so other players don't need to do this — they only enter the sheet link.
 
 ## Password-locked sheet link
-Players only enter a league password — once, and again only if their browser data gets cleared.
+Players only enter a password — once, and again only if their browser data gets cleared.
 1. Open the app, enter the sheet link yourself, then **Settings → Advanced → Lock sheet with password**.
 2. Enter a passphrase (several words, e.g. `blue goblins eat tempo`) twice → **Create locked link** → **Copy line**.
 3. On GitHub open `config.js` → ✏️ → replace the line `lockedSheet: '',` with the copied line → **Commit changes**.
@@ -69,6 +71,29 @@ No app store needed. Send your players the app address. Then:
 The app gets its own icon, opens full screen, and still updates automatically whenever you change the files on GitHub.
 Required files for this (all in this folder): `manifest.json`, `sw.js`, `icon-192.png`, `icon-512.png`,
 `icon-maskable-512.png`, `apple-touch-icon.png`.
+
+## Modes (☰ menu, top left)
+- **Duel** — 1-on-1 matches with your constructed decks (Statistics, Table, Matches).
+- **Multiplayer** — single games with 3+ players (Statistics, Table, Games). **+** → New game: date, one row per player (player, deck, mulligans; **Add player** adds a row), then pick the winner or Draw. Uses the same decks as Duel. Tap a game to edit or delete it.
+- **Sealed** — your own mini tournaments: Statistics, Table (players across tournaments), Tournaments.
+
+### Running a Sealed tournament
+1. Sealed → **+** → pick the set (searchable list with set icons, loaded live from Scryfall), choose or add players, round time (default 50 min) → **Start tournament**.
+2. **Create pairings for round 1** (random). Later rounds use the Swiss system: players with equal points meet, no rematches, a bye (counts as a 2–0 win) goes to the lowest-ranked player who hasn't had one yet.
+3. **Start round** starts the timer. The start time is saved in the sheet, so every phone with the tournament open shows the same countdown; at 0:00 they ring and vibrate. The screen stays on while the timer runs.
+   Phones only ring if the app is open (not locked) — tap the screen once after opening so the browser allows sound.
+4. Tap a pairing to enter its result. When all results are in: **Next round** or **Finish tournament**.
+5. Standings: 3 points per win, 1 per draw; tiebreakers OMW%, GW%, OGW% (official MTG rules, each floored at 33%). Tap a player to set their deck colors.
+
+New sheet tabs `Games` and `GamePlayers` (Multiplayer) and `Tournaments`, `TournamentPlayers` and `TournamentMatches` are created automatically with the first tournament. New players are added to the `Players` tab.
+
+## Editing and deleting matches
+In the **Matches** tab, tap a match to edit it (inactive decks can be chosen here) or delete it (tap **Delete** twice).
+This needs `Code.gs` version 6 (Multiplayer needs it too) in the sheet — after replacing the code, use Deploy → Manage deployments → ✏️ → New version.
+
+## Language
+Settings → **Language**: *System* (follows the phone's language), *English* or *Deutsch*. Each device remembers its choice.
+All texts live in `i18n.js`; change any German wording there (keep the `{placeholders}`).
 
 ## Optional: your own color icons
 Put one SVG per color into the **`icons`** folder next to `index.html`, named exactly
@@ -99,13 +124,14 @@ Use **Deploy → Manage deployments → ✏️ Edit → Version: New version →
 - **Players**: `id`, `name`
 - **Decks**: `id`, `name`, `colors` (WUBRG letters, e.g. `UBR`), `tags` (comma separated), `active` (TRUE/FALSE),
   `playerId` (one or more player ids, comma separated — e.g. `p1, p2` for a shared deck)
-- **Matches**: `id`, `date`, `playerA`, `deckA`, `playerB`, `deckB`, `onPlay`, `gamesA`, `gamesB`, `notes`
+- **Matches**: `id`, `date`, `playerA`, `deckA`, `playerB`, `deckB`, `onPlay`, `gamesA`, `gamesB`, `notes` (+ `draws`, `mulligansA`, `mulligansB`, added automatically when first used)
   — players and decks are referenced by **name**; `onPlay` is the name of the player on the play (optional).
+- **Games** / **GamePlayers** (created automatically): `id`, `date`, `winner`, `draw`, `notes` / `gameId`, `seat`, `player`, `deck`, `mulligans`
 - **Config** (created automatically): `key`, `value`
 
 Columns are matched by header name, so order doesn't matter and extra columns are left untouched.
 New ids continue your numbering (`d28`, `m0112`, …), and dates match the format of the row above.
-Renaming a deck also renames it in the Matches tab; deck names must be unique.
+Renaming a deck also renames it in the Matches and GamePlayers tabs; deck names must be unique.
 
 ## Good to know
 - Anyone with the sheet link can add or change data through the app. Use **File → Version history** in

@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261123a';
+const APP_VERSION = '20261123c';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -39,7 +39,7 @@ function applyStaticTexts() {
   const st = $('#btn-settings'); if (st) st.setAttribute('aria-label', t('settings'));
   const ad = $('#btn-add'); if (ad) ad.setAttribute('aria-label', t('add_match'));
 }
-const TABS = { players: 'Players', decks: 'Decks', matches: 'Matches', config: 'Config', tournaments: 'Tournaments', tPlayers: 'TournamentPlayers', tMatches: 'TournamentMatches' };
+const TABS = { players: 'Players', decks: 'Decks', matches: 'Matches', config: 'Config', tournaments: 'Tournaments', tPlayers: 'TournamentPlayers', tMatches: 'TournamentMatches', games: 'Games', gPlayers: 'GamePlayers' };
 const COLORS = ['W', 'U', 'B', 'R', 'G'];
 
 /* ------------------------------------------------------------------ utils */
@@ -198,7 +198,12 @@ async function fetchViaPublic(id) {
     get(TABS.tPlayers, ['tournamentid', 'player']).catch(() => [[]]),
     get(TABS.tMatches, ['tournamentid', 'round']).catch(() => [[]]),
   ]);
-  return { players, decks, matches, config, tournaments, tplayers, tmatches, title: '' };
+  // Multiplayer tabs are optional too: they appear once the first game is saved.
+  const [games, gplayers] = await Promise.all([
+    get(TABS.games, ['id', 'winner']).catch(() => [[]]),
+    get(TABS.gPlayers, ['gameid', 'player']).catch(() => [[]]),
+  ]);
+  return { players, decks, matches, config, tournaments, tplayers, tmatches, games, gplayers, title: '' };
 }
 
 /* ------------------------------------------------------------------ model */
@@ -281,6 +286,7 @@ function buildModel(raw) {
     allTags: [...new Set(decks.flatMap((d) => d.tags.map((t) => t.toLowerCase())))].sort(),
   };
   if (typeof buildSealed === 'function') model.sealed = buildSealed(raw, model);
+  if (typeof buildMulti === 'function') model.multi = buildMulti(raw, model);
   return model;
 }
 
@@ -392,12 +398,13 @@ const TAB_ICONS = {
   stats: '<svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   list: '<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>',
   swords: '<svg viewBox="0 0 24 24"><path d="M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"/><path d="M9.5 17.5L21 6V3h-3L6.5 14.5M11 19l-6-6M8 16l-4 4M5 21l-2-2"/></svg>',
+  cards: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="9" height="13" rx="1.5" transform="rotate(-10 7.5 12.5)"/><rect x="12" y="5" width="9" height="13" rx="1.5" transform="rotate(10 16.5 11.5)"/></svg>',
   trophy: '<svg viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>',
 };
 const MODE_TABS = {
-  duel: [['home', '#/home', 'stats', 'tab_home'], ['table', '#/table', 'list', 'tab_table'], ['matches', '#/matches', 'swords', 'tab_matches']],
+  duel: [['home', '#/home', 'stats', 'tab_stats'], ['table', '#/table', 'list', 'tab_table'], ['matches', '#/matches', 'swords', 'tab_matches']],
   sealed: [['stats', '#/sealed/stats', 'stats', 'tab_stats'], ['table', '#/sealed/table', 'list', 'tab_table'], ['tournaments', '#/sealed/tournaments', 'trophy', 'tab_tournaments']],
-  multi: [],
+  multi: [['stats', '#/multi', 'stats', 'tab_stats'], ['table', '#/multi/table', 'list', 'tab_table'], ['games', '#/multi/games', 'cards', 'tab_games']],
 };
 let tabsRendered = '';
 function renderTabs(mode, active) {
@@ -425,6 +432,7 @@ function render() {
   store.set('mode', r.mode);
   document.body.dataset.mode = r.mode;
   const tabName = r.mode === 'sealed' ? (r.arg === 't' ? 'tournaments' : r.arg === 'p' ? 'table' : r.arg || 'stats')
+    : r.mode === 'multi' ? (r.arg === 'deck' ? 'table' : r.arg || 'stats')
     : r.name === 'deck' || r.name === 'decks' ? 'table' : r.name;
   renderTabs(r.mode, tabName);
   document.body.classList.toggle('no-chrome', !state.sheetId || (!state.data && !state.loading));
@@ -436,7 +444,7 @@ function render() {
   else if (!d && state.loading) html = '<div class="skeleton" style="height:70px"></div><div class="skeleton"></div><div class="skeleton" style="height:180px"></div><div class="skeleton" style="height:140px"></div>';
   else if (!d) html = viewLoadError();
   else if (r.mode === 'sealed' && typeof SEALED_VIEWS !== 'undefined') html = (SEALED_VIEWS[r.arg] || SEALED_VIEWS.stats)(r.arg2);
-  else if (r.mode === 'multi') html = `<div class="empty"><h2>${t('mode_multi')}</h2><p>${t('multi_soon')}</p></div>`;
+  else if (r.mode === 'multi' && typeof MULTI_VIEWS !== 'undefined') html = (MULTI_VIEWS[r.arg] || MULTI_VIEWS.stats)(r.arg2);
   else html = (VIEWS[r.name] || viewHome)(r.arg);
   view.innerHTML = html;
 
@@ -1311,6 +1319,7 @@ document.addEventListener('click', async (e) => {
     else if (a === 'manual-sheet') { state.manualEntry = true; render(); }
     else if (a === 'password-entry') { state.manualEntry = false; render(); }
     else if (a === 'edit-deck') openDeckEditor(act.dataset.id);
+    else if (a.startsWith('g-') && typeof multiAct === 'function') multiAct(a, act);
     else if (typeof sealedAct === 'function') sealedAct(a, act);
     return;
   }
@@ -1356,6 +1365,7 @@ $('#btn-settings').addEventListener('click', openSettings);
 $('#btn-add').addEventListener('click', () => {
   const m = route().mode;
   if (m === 'sealed' && typeof openTournamentForm === 'function') openTournamentForm();
+  else if (m === 'multi' && typeof openGameForm === 'function') openGameForm();
   else if (m === 'duel') openMatchForm();
 });
 $('#btn-menu').addEventListener('click', openModeMenu);
@@ -1363,7 +1373,7 @@ function openModeMenu() {
   const cur = route().mode;
   const s = openSheet({
     title: () => t('mode_title'),
-    render: () => `<div class="mode-list">${[['duel', 'swords'], ['multi', 'stats'], ['sealed', 'trophy']].map(([m, ic]) => `
+    render: () => `<div class="mode-list">${[['duel', 'swords'], ['multi', 'cards'], ['sealed', 'trophy']].map(([m, ic]) => `
       <button class="mode-item${m === cur ? ' on' : ''}" data-mode="${m}">${TAB_ICONS[ic]}
         <span><b>${t('mode_' + m)}</b><small>${t('mode_' + m + '_sub')}</small></span></button>`).join('')}</div>`,
   });
