@@ -10,6 +10,7 @@ const SEALED_VIEWS = {
   table: (a) => viewSealedTable(a),
   tournaments: (a) => viewSealedTournaments(a),
   t: (id) => viewTournament(id),
+  p: (name) => viewSealedPlayer(name),
 };
 
 /* ------------------------------------------------------------------ model */
@@ -59,9 +60,12 @@ function standings(tn) {
     return P.get(n);
   };
   tn.players.forEach((p) => get(p.name));
+  // A bye only counts once every other match of its round has a result.
+  const roundDone = (r) => roundMatches(tn, r).every((x) => isBye(x) || isReported(x));
   for (const m of tn.matches) {
     if (!isReported(m)) continue;
     const A = get(m.a);
+    if (isBye(m) && !roundDone(m.round)) continue;
     if (isBye(m)) { A.pts += 3; A.mp++; A.w++; A.gw += 2; A.byes++; continue; }
     const B = get(m.b);
     A.mp++; B.mp++; A.opps.push(m.b); B.opps.push(m.a);
@@ -316,7 +320,7 @@ function viewSealedTable() {
     <div class="toolbar"><span class="count">${t('players_n', data.length)}</span><span class="count">${t('tap_sort')}</span></div>
     ${data.length ? `<div class="card league-card"><table class="league stable">
       <thead><tr><th>#</th><th class="pl">${th('player', t('col_player'))}</th><th>${th('t', t('col_t'))}</th><th>${th('titles', t('titles_title'), TAB_ICONS.trophy)}</th><th>${th('avg', t('col_avg'))}</th><th>${th('matches', t('col_m'))}</th><th>${th('wr', t('col_win'))}</th></tr></thead>
-      <tbody>${data.map((r, i) => `<tr>
+      <tbody>${data.map((r, i) => `<tr class="tap" data-href="#/sealed/p/${encodeURIComponent(r.name)}">
         <td class="num">${i + 1}</td>
         <td class="pl"><b>${esc(r.name)}</b></td>
         <td class="num">${r.t}</td>
@@ -637,4 +641,74 @@ function openTournamentForm() {
       await load();
     } catch (err) { busy(save, false); f.err = scriptError(err); s.refresh(); s.body.scrollTop = s.body.scrollHeight; }
   });
+}
+
+/* ------------------------------------------------------------------ view: one player */
+function viewSealedPlayer(name) {
+  const S = state.data.sealed, ui = sealedUi();
+  const mine = S.tournaments.filter((tn) => tn.players.some((p) => p.name === name));
+  if (!mine.length) return `<div class="empty"><h2>${t('player_not_found')}</h2><p><a href="#/sealed/table">${t('tab_table')}</a></p></div>`;
+  const entry = (tn) => tn.players.find((p) => p.name === name);
+  const finished = mine.filter((tn) => tn.status === 'finished');
+  const wins = finished.filter((tn) => entry(tn).rank === 1).sort((a, b) => (a.date ? a.date.getTime() : 0) - (b.date ? b.date.getTime() : 0));
+  const places = finished.map((tn) => entry(tn).rank).filter(Boolean);
+  const avgPlace = places.length ? places.reduce((a, b) => a + b, 0) / places.length : null;
+  const sides = sealedSides(mine).filter((x) => x.player === name);
+  const rec = sides.reduce(addSide, newRec());
+  const wrOf = (r) => (r.m ? r.w / r.m : null);
+  const gwr = rec.gw + rec.gl ? rec.gw / (rec.gw + rec.gl) : null;
+  const fmt1 = (x) => (x == null ? '–' : x.toLocaleString(locale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+
+  // 1) sets won — set icons in mythic orange
+  const trophies = wins.length
+    ? `<div class="trophy-row">${wins.map((tn) => `<a class="trophy" href="#/sealed/t/${encodeURIComponent(tn.id)}" title="${esc(`${tn.setName || tn.name} · ${tn.date ? fmtDate(tn.date) : tn.dateRaw}`)}">
+        ${tn.setIcon ? `<img src="${esc(tn.setIcon)}" alt="${esc(tn.setName || tn.name)}">` : TAB_ICONS.trophy}
+        <span>${esc(tn.setCode || '')}</span></a>`).join('')}</div>`
+    : `<p class="muted small">${t('no_titles')}</p>`;
+
+  // 2) win statistics
+  const kpis = `<div class="kpis">
+    <div class="kpi"><div class="k-label">${t('kpi_tournaments')}</div><div class="k-value num">${mine.length}</div><div class="k-sub">${t('titles_n', wins.length)}</div></div>
+    <div class="kpi"><div class="k-label">${t('kpi_avg_place')}</div><div class="k-value num">${fmt1(avgPlace)}</div><div class="k-sub">${places.length ? t('best_place', { n: Math.min(...places) }) : '&nbsp;'}</div></div>
+    <div class="kpi"><div class="k-label">${t('kpi_winrate')}</div><div class="k-value num">${pct(wrOf(rec))}</div><div class="k-sub num">${t('rec_in', { rec: recStr(rec), matches: t('matches_n', rec.m) })}</div></div>
+    <div class="kpi"><div class="k-label">${t('kpi_games')}</div><div class="k-value num">${pct(gwr)}</div><div class="k-sub num">${t('games_rec', { gw: rec.gw, gl: rec.gl })}</div></div>
+  </div>`;
+  const history = `<div class="list">${mine.map((tn) => {
+    const e = entry(tn);
+    const r = sealedSides([tn]).filter((x) => x.player === name).reduce(addSide, newRec());
+    const place = tn.status === 'finished' && e.rank ? (e.rank <= 3 ? `<span class="medal m${e.rank}">${e.rank}</span>` : `<b>${e.rank}.</b>`) : `<span class="badge running">${t('t_running')}</span>`;
+    return `<a class="list-item tap" href="#/sealed/t/${encodeURIComponent(tn.id)}">${setIcon(tn)}
+      <div class="li-main"><div class="li-title">${esc(tn.setName || tn.name)}</div>
+        <div class="li-sub"><span>${tn.date ? fmtDate(tn.date) : esc(tn.dateRaw)}</span>${e.colors.length ? pips(e.colors) : ''}<span>${recStr(r)}</span></div></div>
+      <div class="li-end">${place}</div>${ICON.chev}</a>`;
+  }).join('')}</div>`;
+
+  // 3) colors
+  const cStat = {}; COLORS.forEach((c) => { cStat[c] = { n: 0, rec: newRec() }; });
+  const withColors = mine.filter((tn) => entry(tn).colors.length);
+  withColors.forEach((tn) => {
+    const r = sealedSides([tn]).filter((x) => x.player === name);
+    entry(tn).colors.forEach((c) => { cStat[c].n++; r.forEach((x) => addSide(cStat[c].rec, x)); });
+  });
+  const played = (ui.pColorMetric || 'played') === 'played';
+  const cRows = COLORS.map((c) => ({
+    label: cn(c), icon: pip(c), color: `var(--mana-${c})`, ringed: true,
+    value: played ? cStat[c].n : wrOf(cStat[c].rec),
+    valueHtml: played ? `${cStat[c].n}<small>${pct(withColors.length ? cStat[c].n / withColors.length : null)}</small>` : `${pct(wrOf(cStat[c].rec))}<small>${recStr(cStat[c].rec)}</small>`,
+  }));
+
+  return `<button class="link-btn back-link" data-act="t-back">${t('back')}</button>
+    <div class="deck-hero"><h2>${esc(name)}</h2></div>
+    <section class="card"><h2>${t('titles_title')}</h2><p class="card-sub">${t('player_titles_sub')}</p>${trophies}</section>
+    ${kpis}
+    <section class="card">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div><h2>${t('colors_title')}</h2><p class="card-sub">${played ? t('player_colors_sub') : t('colors_sub_wr')}</p></div>
+        ${segmented('sealed.pColorMetric', ui.pColorMetric || 'played', [['played', t('played')], ['wr', t('win_pct')]])}
+      </div>
+      ${withColors.length ? hbars(cRows, played ? {} : { max: 1, axis: 0.5 }) : `<p class="muted small">${t('sealed_no_colors')}</p>`}
+    </section>
+    <div class="section-title">${t('tab_tournaments')}</div>
+    ${history}
+    ${wins.some((tn) => tn.setIcon) ? `<p class="legend-note">${t('set_source')}</p>` : ''}`;
 }

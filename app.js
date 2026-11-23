@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261119b';
+const APP_VERSION = '20261123a';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -424,7 +424,7 @@ function render() {
 
   store.set('mode', r.mode);
   document.body.dataset.mode = r.mode;
-  const tabName = r.mode === 'sealed' ? (r.arg === 't' ? 'tournaments' : r.arg || 'stats')
+  const tabName = r.mode === 'sealed' ? (r.arg === 't' ? 'tournaments' : r.arg === 'p' ? 'table' : r.arg || 'stats')
     : r.name === 'deck' || r.name === 'decks' ? 'table' : r.name;
   renderTabs(r.mode, tabName);
   document.body.classList.toggle('no-chrome', !state.sheetId || (!state.data && !state.loading));

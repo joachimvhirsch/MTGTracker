@@ -176,7 +176,10 @@ window.I18N = {
     change: 'Change', set_search_ph: 'Search set name or code', sets_loading: 'Loading sets…',
     set_offline: 'The set list couldn\'t be loaded — type the set name instead.', set_source: 'Set list and set icons: Scryfall (scryfall.com).',
     round_minutes: 'Minutes', selected_n: '{n} selected', add_player_ph: 'Add a new player', add: 'Add',
-    e_two_players: 'Pick at least 2 players.', e_set: 'Pick the set you\'re playing.',
+    e_two_players: 'Pick at least 2 players.',
+    player_not_found: 'Player not found', no_titles: 'No tournament wins yet.', player_titles_sub: 'Sets of the tournaments won',
+    titles_n: (n) => `${n} ${n === 1 ? 'win' : 'wins'}`, kpi_avg_place: 'Ø place', best_place: 'best: {n}.',
+    player_colors_sub: 'Tournaments played with each color', e_set: 'Pick the set you\'re playing.',
   },
 
   de: {
@@ -351,6 +354,9 @@ window.I18N = {
     change: 'Ändern', set_search_ph: 'Set-Name oder -Code suchen', sets_loading: 'Sets werden geladen…',
     set_offline: 'Die Set-Liste konnte nicht geladen werden – tippe den Set-Namen ein.', set_source: 'Set-Liste und Set-Icons: Scryfall (scryfall.com).',
     round_minutes: 'Minuten', selected_n: '{n} ausgewählt', add_player_ph: 'Neuen Spieler hinzufügen', add: 'Hinzufügen',
-    e_two_players: 'Wähle mindestens 2 Spieler.', e_set: 'Wähle das Set, das ihr spielt.',
+    e_two_players: 'Wähle mindestens 2 Spieler.',
+    player_not_found: 'Spieler nicht gefunden', no_titles: 'Noch keine Turniersiege.', player_titles_sub: 'Sets der gewonnenen Turniere',
+    titles_n: (n) => `${n} ${n === 1 ? 'Sieg' : 'Siege'}`, kpi_avg_place: 'Ø Platz', best_place: 'beste: {n}.',
+    player_colors_sub: 'Gespielte Turniere je Farbe', e_set: 'Wähle das Set, das ihr spielt.',
   },
 };
