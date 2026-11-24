@@ -89,7 +89,7 @@ New sheet tabs `Games` and `GamePlayers` (Multiplayer) and `Tournaments`, `Tourn
 
 ## Editing and deleting matches
 In the **Matches** tab, tap a match to edit it (inactive decks can be chosen here) or delete it (tap **Delete** twice).
-This needs `Code.gs` version 6 (Multiplayer needs it too) in the sheet — after replacing the code, use Deploy → Manage deployments → ✏️ → New version.
+This needs `Code.gs` version 7 (Multiplayer and deck ids need it too) in the sheet — after replacing the code, use Deploy → Manage deployments → ✏️ → New version.
 
 ## Language
 Settings → **Language**: *System* (follows the phone's language), *English* or *Deutsch*. Each device remembers its choice.
@@ -125,13 +125,15 @@ Use **Deploy → Manage deployments → ✏️ Edit → Version: New version →
 - **Decks**: `id`, `name`, `colors` (WUBRG letters, e.g. `UBR`), `tags` (comma separated), `active` (TRUE/FALSE),
   `playerId` (one or more player ids, comma separated — e.g. `p1, p2` for a shared deck)
 - **Matches**: `id`, `date`, `playerA`, `deckA`, `playerB`, `deckB`, `onPlay`, `gamesA`, `gamesB`, `notes` (+ `draws`, `mulligansA`, `mulligansB`, added automatically when first used)
-  — players and decks are referenced by **name**; `onPlay` is the name of the player on the play (optional).
-- **Games** / **GamePlayers** (created automatically): `id`, `date`, `winner`, `draw`, `notes` / `gameId`, `seat`, `player`, `deck`, `mulligans`
+  — players are referenced by **name**, decks by **id** (e.g. `d07`); `onPlay` is the name of the player on the play (optional).
+- **Games** / **GamePlayers** (created automatically): `id`, `date`, `winner`, `draw`, `notes` / `gameId`, `seat`, `player`, `deck` (deck id), `mulligans`
 - **Config** (created automatically): `key`, `value`
 
 Columns are matched by header name, so order doesn't matter and extra columns are left untouched.
 New ids continue your numbering (`d28`, `m0112`, …), and dates match the format of the row above.
-Renaming a deck also renames it in the Matches and GamePlayers tabs; deck names must be unique.
+Decks are referenced by id, so two players can each have a deck with the same name (one player can't have two with the same name), and renaming a deck changes nothing else.
+
+**Older sheets (deck names in Matches/GamePlayers):** after you update `Code.gs` to version 7, the app converts the names to deck ids automatically the next time it's opened (a short "Updated … deck references" message appears). If a name belonged to several decks, the deck of the player in that row is used. Names of decks that no longer exist stay as they are. You can also run it by hand: Apps Script editor → choose `migrateDeckReferences` in the toolbar → Run. Running it again does nothing.
 
 ## Good to know
 - Anyone with the sheet link can add or change data through the app. Use **File → Version history** in

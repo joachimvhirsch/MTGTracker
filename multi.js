@@ -14,12 +14,17 @@ const MULTI_VIEWS = {
 /* ------------------------------------------------------------------ model */
 function buildMulti(raw, model) {
   const G = table(raw.games || [[]]), GP = table(raw.gplayers || [[]]);
-  const deckByName = new Map(model.decks.map((d) => [norm(d.name), d]));
   const ghosts = new Map();
-  const deckOf = (name) => {
+  // GamePlayers stores the deck id; older rows may hold the name (the player's own deck is preferred).
+  const deckOf = (name, player) => {
     if (!name) return null;
-    const d = deckByName.get(norm(name)) || model.deckById.get(name);
-    if (d) return d;
+    if (model.deckById.has(name)) return model.deckById.get(name);
+    const list = (model.deckByName.get(norm(name)) || []).filter((x) => !x.ghost);
+    if (list.length) {
+      model.legacyDeckRefs++;
+      const p = model.playerByRef.get(norm(player));
+      return (p && list.find((x) => x.playerIds.includes(p.id))) || list[0];
+    }
     if (!ghosts.has(norm(name))) ghosts.set(norm(name), { id: '?' + name, name, colors: [], tags: [], active: false, playerIds: [], ghost: true });
     return ghosts.get(norm(name));
   };
@@ -31,7 +36,7 @@ function buildMulti(raw, model) {
     const g = byId.get(p.gameid);
     if (!g || !p.player) return;
     const n = parseInt(p.mulligans, 10);
-    g.seats.push({ seat: parseInt(p.seat, 10) || 0, player: p.player, deck: deckOf(p.deck), mull: isNaN(n) ? null : n });
+    g.seats.push({ seat: parseInt(p.seat, 10) || 0, player: p.player, deck: deckOf(p.deck, p.player), mull: isNaN(n) ? null : n });
   });
   games.forEach((g) => g.seats.sort((a, b) => a.seat - b.seat));
   games.sort((a, b) => ((b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0)) || String(b.id).localeCompare(String(a.id)));
@@ -204,7 +209,7 @@ function viewMultiGames() {
   if (ui.gPlayer) games = games.filter((g) => g.seats.some((s) => norm(s.player) === norm(ui.gPlayer)));
   const byName = (a, b) => a.name.localeCompare(b.name);
   const act = d.decks.filter((x) => x.active).sort(byName), inact = d.decks.filter((x) => !x.active).sort(byName);
-  const opt = (x) => `<option value="${esc(x.id)}"${x.id === ui.gDeck ? ' selected' : ''}>${esc(x.name)}</option>`;
+  const opt = (x) => `<option value="${esc(x.id)}"${x.id === ui.gDeck ? ' selected' : ''}>${esc(deckLabel(x))}</option>`;
   const names = [...new Set([...realPlayers().map((p) => p.name), ...d.multi.games.flatMap((g) => g.seats.map((s) => s.player))])].sort();
   let summary = '';
   if (ui.gDeck || ui.gPlayer) {
@@ -301,7 +306,7 @@ function openGameForm(edit) {
     if (cur && !pool.includes(cur)) pool.push(cur);
     const own = pool.filter((x) => x.playerIds.includes(row.player)).sort(byName);
     const others = pool.filter((x) => !x.playerIds.includes(row.player)).sort(byName);
-    const o = (x) => `<option value="${esc(x.id)}"${x.id === row.deck ? ' selected' : ''}>${esc(x.name)} · ${x.colors.join('') || 'C'}${x.active ? '' : t('inactive_suffix')}</option>`;
+    const o = (x) => `<option value="${esc(x.id)}"${x.id === row.deck ? ' selected' : ''}>${esc(deckLabel(x))} · ${x.colors.join('') || 'C'}${x.active ? '' : t('inactive_suffix')}</option>`;
     return `<option value="">${t('choose_deck')}</option>
       ${own.length ? `<optgroup label="${esc(pName(row.player))}">${own.map(o).join('')}</optgroup>` : ''}
       ${others.length ? `<optgroup label="${t('other_decks')}">${others.map(o).join('')}</optgroup>` : ''}`;
@@ -397,7 +402,7 @@ function openGameForm(edit) {
     if (f.err) { s.refresh(); s.body.scrollTop = s.body.scrollHeight; return; }
     busy(save, true, t('saving'));
     try {
-      const deckName = (id) => { const x = d.deckById.get(id); return x ? x.name : String(id).replace(/^\?/, ''); };
+      const deckName = (id) => { const x = d.deckById.get(id); return x ? deckRef(x) : String(id).replace(/^\?/, ''); };
       const payload = {
         data: { date: f.date, winner: f.winner === 'draw' ? '' : pName(f.winner), draw: f.winner === 'draw', notes: f.notes.trim() },
         players: f.rows.map((r) => ({ player: pName(r.player), deck: deckName(r.deck), mulligans: r.mull == null ? '' : r.mull })),

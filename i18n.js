@@ -143,7 +143,7 @@ window.I18N = {
     active_hint: 'Inactive decks are hidden in the table (unless shown) and in the new-match form',
     rename_hint: 'Renaming also updates this deck’s name in the Matches tab.',
     e_name: 'Give the deck a name.', e_player: 'Pick at least one player.',
-    e_dup: 'A deck with this name already exists. Matches reference decks by name, so names must be unique.',
+    e_dup: 'This player already has a deck with this name.', decks_migrated: (n) => `Updated ${n} deck ${n === 1 ? 'reference' : 'references'} in the sheet`,
     deck_updated: 'Deck updated', deck_added: 'Deck added',
 
     // modes & sealed
@@ -335,7 +335,7 @@ window.I18N = {
     active_hint: 'Inaktive Decks werden in der Tabelle (sofern nicht eingeblendet) und beim Eintragen neuer Matches ausgeblendet',
     rename_hint: 'Beim Umbenennen wird der Name auch im Tabellenblatt „Matches“ geändert.',
     e_name: 'Gib dem Deck einen Namen.', e_player: 'Wähle mindestens einen Spieler.',
-    e_dup: 'Ein Deck mit diesem Namen gibt es schon. Matches verweisen über den Namen auf Decks, daher müssen Namen eindeutig sein.',
+    e_dup: 'Dieser Spieler hat schon ein Deck mit diesem Namen.', decks_migrated: (n) => `${n} Deck-${n === 1 ? 'Verweis' : 'Verweise'} im Sheet aktualisiert`,
     deck_updated: 'Deck aktualisiert', deck_added: 'Deck hinzugefügt',
     // Modi & Sealed
     menu: 'Menü', mode_title: 'Modus', mode_duel: 'Duell', mode_multi: 'Multiplayer', mode_sealed: 'Sealed',

@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const APP_VERSION = '20261123c';
+const APP_VERSION = '20261124a';
 
 // If anything goes wrong while drawing a screen, show a way out instead of a blank page.
 window.addEventListener('error', () => {
@@ -248,10 +248,14 @@ function buildModel(raw) {
   const deckById = new Map(decks.map((d) => [d.id, d]));
   const deckByName = new Map();
   decks.forEach((d) => { const k = norm(d.name); if (!deckByName.has(k)) deckByName.set(k, []); deckByName.get(k).push(d); });
+  // Matches store the deck id. Older rows may still hold the deck name: those are resolved by name
+  // (the player's own deck first) and counted, so the app can ask the script to convert them.
+  let legacyDeckRefs = 0;
   const resolveDeck = (ref, player) => {
     if (!ref) return { id: '?', name: t('no_deck'), colors: [], tags: [], active: false, playerIds: [], ghost: true };
     if (deckById.has(ref)) return deckById.get(ref);
     const list = deckByName.get(norm(ref));
+    if (list && !list[0].ghost) legacyDeckRefs++;
     if (list) return (player && list.find((d) => d.playerIds.includes(player.id))) || list[0];
     const ghost = { id: '?' + ref, name: ref, colors: [], tags: [], active: false, playerIds: player ? [player.id] : [], ghost: true };
     deckByName.set(norm(ref), [ghost]); deckById.set(ghost.id, ghost);
@@ -280,7 +284,7 @@ function buildModel(raw) {
 
   const model = {
     title: config.title || '', config,
-    players, decks, matches, deckById, playerByRef, dateStyle,
+    players, decks, matches, deckById, deckByName, playerByRef, dateStyle, legacyDeckRefs,
     headers: { players: P.header, decks: D.header, matches: M.header },
     playerCol,
     allTags: [...new Set(decks.flatMap((d) => d.tags.map((t) => t.toLowerCase())))].sort(),
@@ -367,6 +371,7 @@ async function load(opts = {}) {
     state.data = buildModel(raw); state.config = state.data.config; state.notPublic = false; state.loadedAt = Date.now();
     store.set('cache', { id: state.sheetId, raw, at: state.loadedAt });
     if (opts.toast) toast(t('data_updated'));
+    if (state.data.legacyDeckRefs && scriptUrl() && !state.migrateTried) migrateDeckRefs();
   } catch (e) {
     state.error = e;
     if (state.data) toast(e.message, true);
@@ -375,6 +380,15 @@ async function load(opts = {}) {
     document.body.classList.remove('loading');
     render();
   }
+}
+
+/** Older sheets store deck names in Matches/GamePlayers. Ask the script (once per app start) to switch them to deck ids. */
+async function migrateDeckRefs() {
+  state.migrateTried = true;
+  try {
+    const r = await callScript('migrateDeckRefs');
+    if (r && r.changed) { toast(t('decks_migrated', r.changed)); await load(); }
+  } catch (e) { console.warn('Deck reference migration skipped:', e.message); }
 }
 
 function setSheet(input) {
@@ -490,6 +504,13 @@ function pip(c, cls = '') {
 function pips(colors, big) {
   const cs = colors && colors.length ? colors : ['C'];
   return `<span class="pips" title="${cs.map((c) => cn(c)).join(', ')}">${cs.map((c) => pip(c, big ? 'lg' : '')).join('')}</span>`;
+}
+/** Value stored in the sheet for a deck: its id (or the original text for a deck that no longer exists). */
+function deckRef(deck) { return !deck ? '' : deck.ghost ? deck.name : deck.id; }
+/** Deck name, plus the player when another deck has the same name. */
+function deckLabel(deck) {
+  const same = state.data.deckByName.get(norm(deck.name));
+  return same && same.filter((x) => !x.ghost).length > 1 ? `${deck.name} (${playerNames(deck)})` : deck.name;
 }
 function playerNames(deck) {
   const d = state.data;
@@ -773,7 +794,7 @@ function viewMatches() {
   if (ui.player) ms = ms.filter((m) => (m.pa && m.pa.id === ui.player) || (m.pb && m.pb.id === ui.player));
   const byName = (a, b) => a.name.localeCompare(b.name);
   const act = d.decks.filter((x) => x.active).sort(byName), inact = d.decks.filter((x) => !x.active).sort(byName);
-  const opt = (x) => `<option value="${esc(x.id)}"${x.id === ui.deck ? ' selected' : ''}>${esc(x.name)}</option>`;
+  const opt = (x) => `<option value="${esc(x.id)}"${x.id === ui.deck ? ' selected' : ''}>${esc(deckLabel(x))}</option>`;
   let summary = '';
   if (ui.deck) {
     const rec = emptyRec();
@@ -1061,7 +1082,7 @@ function openMatchForm(edit) {
     const others = pool.filter((x) => !x.playerIds.includes(pid)).sort(byName);
     return { own, others };
   };
-  const deckOpt = (x, dkey) => `<option value="${esc(x.id)}"${x.id === f[dkey] ? ' selected' : ''}>${esc(x.name)} · ${x.colors.join('') || 'C'}${x.active ? '' : t('inactive_suffix')}</option>`;
+  const deckOpt = (x, dkey) => `<option value="${esc(x.id)}"${x.id === f[dkey] ? ' selected' : ''}>${esc(deckLabel(x))} · ${x.colors.join('') || 'C'}${x.active ? '' : t('inactive_suffix')}</option>`;
   const stepper = (key, label) => `<div class="stepper">
       <span class="st-label">${esc(label)}</span>
       <div class="st-ctrl">
@@ -1171,11 +1192,10 @@ function openMatchForm(edit) {
     busy(save, true);
     try {
       const D = state.data;
-      const deck = (id) => D.deckById.get(id);
       const data = {
         date: f.date,
-        playerA: pName(f.pa), deckA: deck(f.da).name,
-        playerB: pName(f.pb), deckB: deck(f.db).name,
+        playerA: pName(f.pa), deckA: deckRef(D.deckById.get(f.da)),
+        playerB: pName(f.pb), deckB: deckRef(D.deckById.get(f.db)),
         onPlay: f.onPlay === 'a' ? pName(f.pa) : f.onPlay === 'b' ? pName(f.pb) : '',
         gamesA: f.ga, gamesB: f.gb, notes: f.notes.trim(),
       };
@@ -1253,7 +1273,7 @@ function openDeckEditor(deckId, opts = {}) {
     f.name = f.name.trim(); f.err = '';
     if (!f.name) f.err = t('e_name');
     else if (!f.players.length) f.err = t('e_player');
-    else if (D.decks.some((x) => x !== deck && !x.ghost && norm(x.name) === norm(f.name))) f.err = t('e_dup');
+    else if (D.decks.some((x) => x !== deck && !x.ghost && norm(x.name) === norm(f.name) && x.playerIds.some((pid) => f.players.includes(pid)))) f.err = t('e_dup');
     if (f.err) { s.refresh(); s.body.scrollTop = s.body.scrollHeight; return; }
     busy(save, true);
     try {
@@ -1272,7 +1292,7 @@ function openDeckEditor(deckId, opts = {}) {
       toast(deck ? t('deck_updated') : t('deck_added'));
       await load();
       if (opts.onSaved) {
-        const saved = state.data && (state.data.deckById.get(id) || state.data.decks.find((x) => norm(x.name) === norm(f.name)));
+        const saved = state.data && state.data.deckById.get(id);
         if (saved) opts.onSaved(saved);
       }
     } catch (err) {

@@ -1,7 +1,7 @@
 /* MTG Tracker service worker.
  * Network first for the app's own files (so updates on GitHub show up right away),
  * falling back to the last cached copy when offline. Google requests are never cached. */
-const CACHE = 'mtg-tracker-v8';
+const CACHE = 'mtg-tracker-v9';
 const CORE = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'i18n.js', 'sealed.js', 'multi.js', 'manifest.json', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
